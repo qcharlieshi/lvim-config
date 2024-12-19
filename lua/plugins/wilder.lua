@@ -81,20 +81,6 @@ return {
     --     substitute = wildmenu_renderer,
     --   })
     -- )
-    --
-    --
-    --
-    --
-    --
-    --
-    --
-    --
-    --
-    --
-    --
-    --
-    --
-    --
     wilder.set_option(
       "renderer",
       wilder.popupmenu_renderer(wilder.popupmenu_border_theme({
@@ -102,21 +88,28 @@ return {
           border = "Normal", -- highlight to use for the border
         },
         -- 'single', 'double', 'rounded' or 'solid'
-        -- can also be a list of 8 characters, see :h wilder#popupmenu_border_theme() for more details
         border = "rounded",
+
+        left = {
+          " ",
+          wilder.popupmenu_devicons(),
+          wilder.popupmenu_buffer_flags({
+            flags = " a + ",
+            icons = { ["+"] = "", a = "", h = "" },
+          }),
+        },
+        right = {
+          " ",
+          wilder.popupmenu_scrollbar(),
+        },
       }))
     )
 
     wilder.set_option("pipeline", {
       wilder.branch(
         wilder.python_file_finder_pipeline({
-          -- to use ripgrep : {'rg', '--files'}
-          -- to use fd      : {'fd', '-tf'}
           file_command = { "rg", "--files" },
-          -- -- { "find", ".", "-type", "f", "-printf", "%P\n" },
-          -- to use fd      : {'fd', '-td'}
           dir_command = { "fd", "-td" },
-          -- { "find", ".", "-type", "d", "-printf", "%P\n" },
           -- -- use {'cpsm_filter'} for performance, requires cpsm vim plugin
           -- found at https://github.com/nixprime/cpsm
           filters = { "fuzzy_filter", "difflib_sorter" },
@@ -131,12 +124,12 @@ return {
         }),
         wilder.python_search_pipeline({
           -- can be set to wilder#python_fuzzy_delimiter_pattern() for stricter fuzzy matching
-          -- pattern = wilder.python_fuzzy_pattern(),
+          pattern = wilder.python_fuzzy_pattern(),
           -- omit to get results in the order they appear in the buffer
-          -- sorter = wilder.python_difflib_sorter(),
+          sorter = wilder.python_difflib_sorter(),
           -- can be set to 're2' for performance, requires pyre2 to be installed
           -- see :h wilder#python_search() for more details
-          --   engine = "re",
+          engine = "re",
         })
       ),
     })
