@@ -1,3 +1,4 @@
+-- Unused, using snacks picker
 return {
   {
     "ibhagwan/fzf-lua",
