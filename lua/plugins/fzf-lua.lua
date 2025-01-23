@@ -1,24 +1,26 @@
 return {
   {
     "ibhagwan/fzf-lua",
-    opts = function(_, opts)
-      return vim.tbl_deep_extend("force", opts, {
-        fzf_opts = {
-          ["--layout"] = "default",
-        },
+    opts = {
+      fzf_opts = {
+        ["--layout"] = "default",
+        ["--cycle"] = true,
+      },
 
-        files = {
-          resume = true,
-          cwd_prompt = true,
-        },
-        grep = {
-          rg_glob = true,
-          glob_flag = "--iglob",
-          glob_separator = "%s%-%-",
-          resume = true,
-          cwd_prompt = true,
-        },
-      })
-    end,
+      files = {
+        resume = true,
+        cwd_prompt = true,
+        cwd_header = true,
+      },
+      grep = {
+        multiprocess = true,
+        rg_glob = true,
+        glob_flag = "--iglob",
+        glob_separator = "%s%-%-",
+        resume = true,
+        cwd_prompt = true,
+        debug = true,
+      },
+    },
   },
 }
