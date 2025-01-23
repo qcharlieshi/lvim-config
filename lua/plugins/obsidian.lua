@@ -14,8 +14,6 @@ return {
   dependencies = {
     -- Required.
     "nvim-lua/plenary.nvim",
-
-    -- see below for full list of optional dependencies 👇
   },
   opts = {
     workspaces = {
@@ -24,7 +22,5 @@ return {
         path = "/Users/qcharlieshi/Library/Mobile Documents/iCloud~md~obsidian/Documents/Default/",
       },
     },
-
-    -- see below for full list of options 👇
   },
 }
