@@ -1,8 +1,18 @@
+-- Define your custom action to open in the leftmost window.
+local function open_leftmost(picker)
+  vim.cmd("wincmd h") -- Move to the leftmost window (you might need more logic here)
+  picker:jump() -- Use the picker's jump action to open the selected item
+end
+
 return {
   {
     "folke/snacks.nvim",
     opts = {
       picker = {
+        -- debug = {
+        --   grep = true,
+        --   files = true,
+        -- },
         grep = {
           -- todo --
           finder = "rg",
@@ -23,7 +33,23 @@ return {
           live = true,
           buffer = true,
         },
-        files = {},
+        files = {
+          finder = "fd",
+        },
+        -- Add custom actions.
+        -- actions = {
+        --   open_left = open_leftmost,
+        --   open_right = open_leftmost,
+        -- },
+
+        -- Bind your custom action to a hotkey in the input window key mappings.
+        -- win = {
+        --   input = {
+        --     keys = {
+        --       ["<C-w>h"] = "open_left", -- or choose your preferred key combo
+        --     },
+        --   },
+        -- },
       },
     },
   },
