@@ -18,7 +18,7 @@ return {
   },
   dependencies = {
     "folke/snacks.nvim",
-    --- The below dependencies are optional
+    --- The below dependences are optional
     "catppuccin/nvim",
     "nvim-tree/nvim-tree.lua",
     --- Neo-tree integration

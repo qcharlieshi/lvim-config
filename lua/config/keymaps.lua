@@ -16,41 +16,21 @@ vim.keymap.set("n", "w<Left>", "<C-w>h", { desc = "Move to the window on the lef
 vim.keymap.set("n", "w<Up>", "<C-w>k", { desc = "Move to the window above", silent = true })
 vim.keymap.set("n", "w<Down>", "<C-w>j", { desc = "Move to the window below", silent = true })
 
--- vim.keymap.set("n", "<leader>gm", function()
---   -- Get the Git repo root (trim only leading/trailing whitespace)
---   local git_root = vim.fn.system("git rev-parse --show-toplevel"):gsub("^%s*(.-)%s*$", "%1")
---   if git_root == "" then
---     git_root = vim.loop.cwd()
---   end
---
---   -- Get the list of modified files relative to the repo root
---   local modified_files = vim.fn.systemlist("git diff --name-only")
---   if #modified_files == 0 then
---     print("No modified files found")
---     return
---   en
---
---   -- Escape each file name individually
---   local escaped_files = {}
---   for _, file in ipairs(modified_files) do
---     table.insert(escaped_files, vim.fn.shellescape(file))
---   end
---   local files_arg = table.concat(escaped_files, " ")
---
---   -- Use Snacks picker to search within the modified files
---   require("snacks").picker({
---     prompt = "Grep Modified Files",
---     cwd = git_root,
---     files = modified_files,
---     action = function(query)
---       if not query or query == "" then
---         print("No query provided")
---         return
---       end
---       local escaped_query = vim.fn.shellescape(query)
---       local grep_cmd = "rg " .. escaped_query .. " " .. files_arg
---       -- Open the results in a terminal split:
---       vim.cmd("split | terminal " .. grep_cmd)
---     end,
---   })
--- end, { desc = "Grep modified git files (snacks)" })
+-- Define a function to jump to the previous line with indent level 1.
+local function goToIndentLevelOne()
+  local target_line = vim.fn.line(".") -- start at the current line
+
+  -- Walk upward until a line with an indent of exactly 1 is found.
+  while target_line > 1 do
+    target_line = target_line - 1
+    if vim.fn.indent(target_line) == 1 then
+      break
+    end
+  end
+
+  -- If no matching line is found, target_line will eventually become 1.
+  vim.api.nvim_win_set_cursor(0, { target_line, 0 })
+end
+
+-- Map the key sequence (e.g., [+t) in normal mode to call the function.
+vim.api.nvim_set_keymap("n", "[+t", ":lua goToIndentLevelOne()<CR>", { noremap = true, silent = true })
