@@ -3,6 +3,17 @@ return {
     "folke/snacks.nvim",
     opts = {
       picker = {
+        layout = { -- the layout config
+          fullscreen = true,
+        },
+        sources = {
+          explorer = {
+            focus = "list",
+            auto_close = true,
+            jump = { close = false },
+            layout = { fullscreen = false },
+          },
+        },
         -- debug = {
         --   grep = true,
         --   files = true,
