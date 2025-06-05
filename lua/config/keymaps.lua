@@ -16,6 +16,7 @@ vim.keymap.set("n", "w<Left>", "<C-w>h", { desc = "Move to the window on the lef
 vim.keymap.set("n", "w<Up>", "<C-w>k", { desc = "Move to the window above", silent = true })
 vim.keymap.set("n", "w<Down>", "<C-w>j", { desc = "Move to the window below", silent = true })
 
+vim.keymap.set("n", "<leader>cc", "<cmd>ClaudeCode<CR>", { desc = "Toggle Claude Code" })
 -- Define a function to jump to the previous line with indent level 1.
 local function goToIndentLevelOne()
   local target_line = vim.fn.line(".") -- start at the current line
