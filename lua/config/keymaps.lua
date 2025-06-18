@@ -16,22 +16,23 @@ vim.keymap.set("n", "w<Left>", "<C-w>h", { desc = "Move to the window on the lef
 vim.keymap.set("n", "w<Up>", "<C-w>k", { desc = "Move to the window above", silent = true })
 vim.keymap.set("n", "w<Down>", "<C-w>j", { desc = "Move to the window below", silent = true })
 
-vim.keymap.set("n", "<leader>cc", "<cmd>ClaudeCode<CR>", { desc = "Toggle Claude Code" })
--- Define a function to jump to the previous line with indent level 1.
-local function goToIndentLevelOne()
-  local target_line = vim.fn.line(".") -- start at the current line
+vim.keymap.set("n", "<C-H>", "<C-w>h", { noremap = true, silent = true })
+vim.keymap.set("n", "<C-J>", "<C-w>j", { noremap = true, silent = true })
+vim.keymap.set("n", "<C-K>", "<C-w>k", { noremap = true, silent = true })
+vim.keymap.set("n", "<C-L>", "<C-w>l", { noremap = true, silent = true })
 
-  -- Walk upward until a line with an indent of exactly 1 is found.
-  while target_line > 1 do
-    target_line = target_line - 1
-    if vim.fn.indent(target_line) == 1 then
-      break
-    end
+vim.keymap.set("n", "<leader>c.", "<cmd>ClaudeCode<CR>", { desc = "Toggle Claude Code" })
+
+-- Jump to next/previous meaningful first-level block
+vim.keymap.set("n", "]1", "/^[a-zA-Z_]<CR>", { noremap = true, silent = true, desc = "Next first-level block" })
+vim.keymap.set("n", "[1", "?^[a-zA-Z_]<CR>", { noremap = true, silent = true, desc = "Previous first-level block" })
+
+vim.keymap.set("n", "<leader>f.", ':let @+ = expand("%:.")<CR>', { desc = "Copy relative path" })
+
+vim.keymap.set("n", "<leader>b.", function()
+  if #vim.api.nvim_list_wins() > 1 then
+    vim.cmd("wincmd w | buffer #")
+  else
+    vim.cmd("vsplit #")
   end
-
-  -- If no matching line is found, target_line will eventually become 1.
-  vim.api.nvim_win_set_cursor(0, { target_line, 0 })
-end
-
--- Map the key sequence (e.g., [+t) in normal mode to call the function.
-vim.api.nvim_set_keymap("n", "[+t", ":lua goToIndentLevelOne()<CR>", { noremap = true, silent = true })
+end, { noremap = true, silent = true, desc = "Open previous buffer in window" })
