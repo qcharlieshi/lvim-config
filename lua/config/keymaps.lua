@@ -29,6 +29,41 @@ vim.keymap.set("n", "[1", "?^[a-zA-Z_]<CR>", { noremap = true, silent = true, de
 
 vim.keymap.set("n", "<leader>f.", ':let @+ = expand("%:.")<CR>', { desc = "Copy relative path" })
 
+-- local function goto_prev_buffer_other_window()
+--   local current_win = vim.api.nvim_get_current_win()
+--   local all_wins = vim.api.nvim_list_wins()
+--
+--   -- Filter out current window and floating windows
+--   local other_wins = {}
+--   for _, win in ipairs(all_wins) do
+--     if win ~= current_win and vim.api.nvim_win_get_config(win).relative == "" then
+--       table.insert(other_wins, win)
+--     end
+--   end
+--
+--   if #other_wins > 0 then
+--     -- Go to first other window and switch to previous buffer
+--     vim.api.nvim_set_current_win(other_wins[1])
+--     if vim.fn.bufexists("#") == 1 then
+--       vim.cmd("buffer #")
+--     end
+--   else
+--     -- No other window exists, create vertical split
+--     if vim.fn.bufexists("#") == 1 then
+--       vim.cmd("vsplit #")
+--     else
+--       -- No previous buffer, just create empty split
+--       vim.cmd("vsplit")
+--     end
+--   end
+-- end
+--
+-- vim.keymap.set("n", "<leader>b.", goto_prev_buffer_other_window, {
+--   noremap = true,
+--   silent = true,
+--   desc = "Previous buffer in other window or vsplit",
+-- })
+--
 vim.keymap.set("n", "<leader>b.", function()
   if #vim.api.nvim_list_wins() > 1 then
     vim.cmd("wincmd w | buffer #")
