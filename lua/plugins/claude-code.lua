@@ -2,9 +2,9 @@ return {
   "coder/claudecode.nvim",
   opts = {
     terminal = {
-      provider = "native", -- Use native terminal instead of snacks
+      provider = "snacks", -- Use snacks terminal for better integration
       split_side = "right",
-      split_width_percentage = 0.40,
+      split_width_percentage = 0.4,
     },
   },
   dependencies = {
@@ -24,5 +24,8 @@ return {
       desc = "Add file",
       ft = { "snacks", "neo-tree", "oil" },
     },
+    -- Diff management
+    { "<leader>aa", "<cmd>ClaudeCodeDiffAccept<cr>", desc = "Accept diff" },
+    { "<leader>ad", "<cmd>ClaudeCodeDiffDeny<cr>", desc = "Deny diff" },
   },
 }
