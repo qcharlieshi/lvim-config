@@ -71,3 +71,9 @@ vim.keymap.set("n", "<leader>b.", function()
     vim.cmd("vsplit #")
   end
 end, { noremap = true, silent = true, desc = "Open previous buffer in window" })
+
+-- Window resize keymaps with larger increments
+vim.keymap.set("n", "<leader>w+", "<cmd>resize +20<CR>", { desc = "Increase window height", silent = true })
+vim.keymap.set("n", "<leader>w-", "<cmd>resize -20<CR>", { desc = "Decrease window height", silent = true })
+vim.keymap.set("n", "<leader>w<", "<cmd>vertical resize -20<CR>", { desc = "Decrease window width", silent = true })
+vim.keymap.set("n", "<leader>w>", "<cmd>vertical resize +20<CR>", { desc = "Increase window width", silent = true })
