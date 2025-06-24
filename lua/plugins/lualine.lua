@@ -1,11 +1,13 @@
 local colors = {
   blue = "#80a0ff",
   cyan = "#79dac8",
+  cyan_dark = "#4a9b8e",
   black = "#080808",
   white = "#c6c6c6",
   red = "#ff5189",
   violet = "#d183e8",
   grey = "#303030",
+  orange = "#ff9500",
 }
 
 local bubbles_theme = {
@@ -28,24 +30,48 @@ local bubbles_theme = {
 
 return {
   "nvim-lualine/lualine.nvim",
-  dependencies = { "nvim-tree/nvim-web-devicons" },
+  dependencies = { "nvim-tree/nvim-web-devicons", "SmiteshP/nvim-navic" },
   opts = {
     options = {
-      theme = bubbles_theme,
-      component_separators = "",
-      section_separators = { left = "", right = "" },
+      theme = "base16",
+      -- component_separators = { left = "●", right = "●" },
+      -- section_separators = { left = "", right = "" },
+      -- component_seperators = { left = "|", right = "|" },
     },
     sections = {
-      lualine_a = { { "mode", separator = { left = "" }, right_padding = 2 } },
-      lualine_b = { { "filename", path = 1 }, "branch" },
-      lualine_c = {
-        "%=",
+      lualine_a = { { "mode", separator = { left = "", right = "" }, right_padding = 2 } },
+      lualine_b = {
+        { separator = { left = "" }, color = { fg = colors.cyan }, "filename", path = 1 },
+        { "branch", separator = { left = "", right = "" }, color = { bg = colors.cyan, fg = colors.grey } },
       },
-      lualine_q = { "diagnostics" },
-      lualine_x = { "diff" },
-      lualine_y = { "filetype", "progress" },
+      lualine_c = {
+        {
+          function()
+            local navic = require("nvim-navic")
+            if navic.is_available() then
+              return navic.get_location()
+            end
+            return ""
+          end,
+          cond = function()
+            local navic = require("nvim-navic")
+            return navic.is_available()
+          end,
+        },
+        "diagnostics",
+      },
+      -- lualine_x = { "diff" },
+      lualine_y = {
+        {
+          "filetype",
+          separator = { left = "", right = "" },
+          color = { bg = colors.cyan_dark, fg = colors.grey },
+        },
+        { "progress", color = { bg = colors.orange, fg = colors.grey } },
+        { "location", color = { bg = colors.orange, fg = colors.grey } },
+      },
       lualine_z = {
-        { "location", separator = { right = "" }, left_padding = 2, "datetime" },
+        { separator = { left = "", right = "" }, left_padding = 2, "datetime" },
       },
     },
     inactive_sections = {
