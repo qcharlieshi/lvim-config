@@ -12,12 +12,11 @@ return {
             auto_close = true,
             jump = { close = false },
             layout = { fullscreen = false },
+            preview = { true },
           },
         },
         -- debug = {
-        --   grep = true,
-        --   files = true,
-        -- },
+        --   grep = true, files = true, },
         grep = {
           -- todo --
           finder = "rg",

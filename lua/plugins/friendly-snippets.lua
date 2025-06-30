@@ -1,0 +1,2 @@
+-- Used to load snippets from vscode for use with *luasnip*
+-- return { "luasnip.loaders.from_vscode" }
