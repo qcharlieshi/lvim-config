@@ -5,9 +5,6 @@ vim.g.python3_host_prog = "/Library/Frameworks/Python.framework/Versions/3.12/bi
 -- use the existing buffers/tabs if avaliable
 -- vim.opt.switchbuf = { "useopen", "usetab" }
 
--- maybe we could set this by project? Not sure if this is too much?
-vim.g.vtsls_tsserver_maxTsServerMemory = 16192
-
 -- Ensure this runs after the Snacks plugin is loaded
 vim.ui.input = require("snacks").input
 vim.ui.select = require("snacks").picker.select -- if you want to override vim.ui.select as well
@@ -74,3 +71,21 @@ function GrepChangedFilesWithPicker()
     end
   end)
 end
+
+-- Allows syncing of neovim frame to the entire terminal screen
+vim.api.nvim_create_autocmd({ "UIEnter", "ColorScheme" }, {
+  callback = function()
+    local normal = vim.api.nvim_get_hl(0, { name = "Normal" })
+    if not normal.bg then
+      return
+    end
+    io.write(string.format("\027]11;#%06x\027\\", normal.bg))
+  end,
+})
+
+-- Allows syncing of neovim frame to the entire terminal screen
+vim.api.nvim_create_autocmd("UILeave", {
+  callback = function()
+    io.write("\027]111\027\\")
+  end,
+})
