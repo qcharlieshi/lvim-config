@@ -15,17 +15,26 @@ return {
   dependencies = { "nvim-tree/nvim-web-devicons", "SmiteshP/nvim-navic" },
   opts = {
     options = {
+      icons_enabled = true,
       theme = "auto",
+      -- color = { bg = colors.grey },
+      component_separators = { left = "|", right = "|" },
+      section_separators = { left = "", right = "" },
       globalstatus = vim.o.laststatus == 3,
-      disabled_filetypes = {
-        statusline = { "dashboard", "alpha", "ministarter", "snacks_dashboard", "snacks_picker_list" },
+      always_show_tabline = true,
+      ignore_focus = {
+        "dashboard",
+        "alpha",
+        "ministarter",
+        "snacks_dashboard",
+        "snacks_picker_list",
+        "snacks_picker_input",
       },
     },
     sections = {
       lualine_a = { { "branch", separator = { left = "" }, right_padding = 2 } },
       lualine_b = {
         { separator = { left = "" }, color = { fg = colors.cyan }, "filename", path = 1, right_padding = 2 },
-        -- { , separator = { left = "", right = "" }, color = { bg = colors.cyan, fg = colors.grey } },
       },
       lualine_c = {
         {
@@ -35,7 +44,9 @@ return {
           function()
             local navic = require("nvim-navic")
             if navic.is_available() then
-              return navic.get_location({ depth_limit = 6 })
+              local width = vim.api.nvim_win_get_width(0)
+              local depth_limit = math.floor(width / 5)
+              return navic.get_location({ depth_limit = math.max(depth_limit, 1) })
             end
             return ""
           end,
@@ -66,6 +77,52 @@ return {
       lualine_x = {},
       lualine_y = {},
       lualine_z = { "location" },
+    },
+    winbar = {
+      lualine_a = {
+        {
+          show_modified_status = true,
+          -- use_mode_colors = true,
+          "buffers",
+          mode = 2,
+          max_length = vim.o.columns * 2 / 5,
+          -- component_separators = { left = "", right = "" },
+          buffers_color = {
+            active = { fg = colors.grey, bg = colors.orange }, -- Color for active buffer.
+            inactive = { fg = colors.cyan_dark, bg = colors.black }, -- Color for inactive buffer.
+          },
+          separator = { left = "", right = "", color = { fg = colors.red, bg = colors.orange } },
+          symbols = {
+            alternate_file = "",
+            directory = "",
+          },
+          right_padding = 4,
+        },
+      },
+      lualine_b = {
+        {
+          left_padding = 4,
+          separator = { left = "" },
+          color = { bg = colors.black, fg = colors.black },
+          function()
+            local navic = require("nvim-navic")
+            if navic.is_available() then
+              local width = vim.api.nvim_win_get_width(0)
+              local depth_limit = math.floor(width / 20)
+              return navic.get_location({ depth_limit = math.max(depth_limit, 1) })
+            end
+            return ""
+          end,
+          cond = function()
+            local navic = require("nvim-navic")
+            return navic.is_available()
+          end,
+        },
+      },
+      lualine_c = {},
+      lualine_x = {},
+      lualine_y = {},
+      lualine_z = { { "tabs" } },
     },
   },
 }
