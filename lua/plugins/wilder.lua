@@ -47,11 +47,11 @@ return {
         -- 'single', 'double', 'rounded' or 'solid'
         -- can also be a list of 8 characters, see :h wilder#popupmenu_palette_theme() for more details
         border = "rounded",
+        margin = "50",
         max_height = "50%", -- max height of the palette
-        min_height = "50%", -- set to the same as 'max_height' for a fixed height window
+        min_height = "25%", -- set to the same as 'max_height' for a fixed height window
         prompt_position = "top", -- 'top' or 'bottom' to set the location of the prompt
         reverse = 0, -- set to 1 to reverse the order of the list, use in combination with 'prompt_position'
-        -- highlighter = wilder.basic_highlighter(),
         right = { " ", wilder.popupmenu_scrollbar() },
         left = {
           " ",
@@ -63,42 +63,13 @@ return {
         },
         highlights = {
           gradient = gradient, -- must be set
+          -- selected doesn't fill the entire selection for whatever reason
+          -- selected_gradient = "#87CEEB", -- light blue highlight for selected candidate
           -- selected_gradient key can be set to apply gradient highlighting for the selected candidate.
         },
         highlighter = highlighters,
       }))
     )
-
-    -- wilder.set_option(
-    --   "renderer",
-    --   wilder.popupmenu_renderer(wilder.popupmenu_border_theme({
-    --     -- 'single', 'double', 'rounded' or 'solid'
-    --     -- can also be a list of 8 characters, see :h wilder#popupmenu_palette_theme() for more details
-    --     border = "rounded",
-    --     max_height = "50%", -- max height of the palette
-    --     min_height = "50%", -- set to the same as 'max_height' for a fixed height window
-    --     prompt_position = "top", -- 'top' or 'bottom' to set the location of the prompt
-    --     reverse = 0, -- set to 1 to reverse the order of the list, use in combination with 'prompt_position'
-    --     -- highlighter = wilder.basic_highlighter(),
-    --     right = { " ", wilder.popupmenu_scrollbar() },
-    --     left = {
-    --       " ",
-    --       wilder.popupmenu_devicons(),
-    --       wilder.popupmenu_buffer_flags({
-    --         flags = " a + ",
-    --         icons = { ["+"] = "", a = "", h = "" },
-    --       }),
-    --     },
-    --     highlights = {
-    --       gradient = gradient, -- must be set
-    --       -- selected_gradient key can be set to apply gradient highlighting for the selected candidate.
-    --     },
-    --     highlighter = highlighters,
-    --     -- highlighter = wilder.highlighter_with_gradient({
-    --     --   wilder.lua_fzy_highlighter(),
-    --     -- }),
-    --   }))
-    -- )
 
     wilder.set_option("pipeline", {
       wilder.branch(
@@ -110,19 +81,5 @@ return {
         -- wilder.search_pipeline()
       ),
     })
-
-    -- wilder.set_option("pipeline", {
-    --   wilder.branch(
-    --     wilder.cmdline_pipeline({
-    --       -- sets the language to use, 'vim' and 'python' are supported
-    --       language = "vim",
-    --       -- -- 0 turns off fuzzy matching
-    --       -- 1 turns on fuzzy matching
-    --       -- 2 partial fuzzy matching (match does not have to begin with the same first letter)
-    --       fuzzy = 1,
-    --     }),
-    --     wilder.search_pipeline()
-    --   ),
-    -- })
   end,
 }
