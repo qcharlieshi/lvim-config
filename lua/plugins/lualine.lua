@@ -14,9 +14,6 @@ return {
   "nvim-lualine/lualine.nvim",
   dependencies = { "nvim-tree/nvim-web-devicons", "SmiteshP/nvim-navic" },
   opts = {
-    options = {
-      theme = "base16",
-    },
     sections = {
       lualine_a = { { "mode", separator = { left = "", right = "" }, right_padding = 2 } },
       lualine_b = {

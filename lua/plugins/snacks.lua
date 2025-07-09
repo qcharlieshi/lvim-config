@@ -18,10 +18,10 @@ return {
         -- debug = {
         --   grep = true, files = true, },
         grep = {
+          debug = true,
           -- todo --
           finder = "rg",
           supports_args = true,
-          glob = "%s%-%-",
         },
         matcher = {
           fuzzy = true, -- use fuzzy matching
