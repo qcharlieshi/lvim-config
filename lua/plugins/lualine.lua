@@ -15,10 +15,10 @@ return {
   dependencies = { "nvim-tree/nvim-web-devicons", "SmiteshP/nvim-navic" },
   opts = {
     sections = {
-      lualine_a = { { "mode", separator = { left = "", right = "" }, right_padding = 2 } },
+      lualine_a = { { "branch", separator = { left = "" }, right_padding = 2 } },
       lualine_b = {
-        { separator = { left = "" }, color = { fg = colors.cyan }, "filename", path = 1 },
-        { "branch", separator = { left = "", right = "" }, color = { bg = colors.cyan, fg = colors.grey } },
+        { separator = { left = "", right = "" }, color = { fg = colors.cyan }, "filename", path = 1 },
+        -- { , separator = { left = "", right = "" }, color = { bg = colors.cyan, fg = colors.grey } },
       },
       lualine_c = {
         {
@@ -37,16 +37,17 @@ return {
         "diagnostics",
       },
       lualine_y = {
-        {
-          "filetype",
-          separator = { left = "", right = "" },
-          color = { bg = colors.cyan_dark, fg = colors.grey },
-        },
+        separator = { left = "", right = "" },
         { "progress", color = { bg = colors.orange, fg = colors.grey } },
         { "location", color = { bg = colors.orange, fg = colors.grey } },
       },
       lualine_z = {
-        { separator = { left = "", right = "" }, left_padding = 2, "datetime" },
+        {
+          separator = { left = "", right = "" },
+          left_padding = 2,
+          "filetype",
+          color = { bg = colors.cyan_dark, fg = colors.grey },
+        },
       },
     },
     inactive_sections = {

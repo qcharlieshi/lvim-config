@@ -6,7 +6,7 @@ return {
     require("bufferline").setup({
       options = {
         termguicolors = true,
-        mode = "buffers",
+        mode = "tabs",
         separator_style = "slope",
         always_show_bufferline = false,
         show_buffer_close_icons = true,
@@ -17,7 +17,7 @@ return {
           style = "underline",
         },
         persist_buffer_sort = true,
-        diagnostics_update_in_insert = false,
+        diagnostics_update_in_insert = true,
         tab_size = 28,
         max_name_length = 28,
         truncate_names = true,
