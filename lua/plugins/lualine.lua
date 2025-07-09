@@ -60,6 +60,7 @@ return {
         },
         lualine_c = {
           {
+            draw_empty = true,
             separator = { left = "" },
             color = { fg = colors.black },
             left_padding = 2,
@@ -121,6 +122,7 @@ return {
                   removed = gitsigns.removed,
                 }
               end
+              return { added = 0, modified = 0, removed = 0 }
             end,
           },
         },
