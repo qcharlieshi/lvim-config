@@ -54,7 +54,7 @@ return {
     vim.o.foldlevelstart = 99
     vim.o.foldenable = true
 
-    -- Auto preview fold after 10 seconds
+    -- Auto preview fold after 2 seconds
     local timer = vim.loop.new_timer()
     local last_fold_time = 0
 
