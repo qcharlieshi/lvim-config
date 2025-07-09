@@ -39,7 +39,6 @@ return {
         theme = "auto",
         component_separators = { left = "║", right = "║" },
         section_separators = { left = "", right = "" },
-        -- globalstatus = vim.o.laststatus == 3,
         always_show_tabline = true,
         padding = { left = 1, right = 1 },
         ignore_focus = {
@@ -155,7 +154,14 @@ return {
             -- use_mode_colors = true,
             "buffers",
             mode = 2,
-            max_length = vim.o.columns * 2 / 5,
+            max_length = function()
+              local win_count = vim.fn.winnr("$")
+              if win_count > 1 then
+                return vim.o.columns * 1 / 4 -- Show fewer buffers with multiple windows
+              else
+                return vim.o.columns * 2 / 5 -- Original length for single window
+              end
+            end,
             -- component_separators = { left = "", right = "" },
             buffers_color = {
               active = { fg = colors.grey, bg = colors.orange }, -- Color for active buffer.
@@ -192,7 +198,7 @@ return {
         lualine_c = {},
         lualine_x = {},
         lualine_y = {},
-        lualine_z = { { "tabs" } },
+        lualine_z = {},
       },
       extensions = { "lazy", "fzf" },
     })
