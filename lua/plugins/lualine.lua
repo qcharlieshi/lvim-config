@@ -15,16 +15,6 @@ return {
   "nvim-lualine/lualine.nvim",
   dependencies = { "nvim-tree/nvim-web-devicons", "SmiteshP/nvim-navic" },
   config = function()
-    -- Create thick top border for statusline
-    -- vim.api.nvim_set_hl(0, "StatusLineTopBorder", { fg = colors.cyan, bg = colors.black })
-    -- vim.opt.laststatus = 2
-    --
-    -- -- Add the border character above statusline
-    -- vim.api.nvim_create_autocmd("VimEnter", {
-    --   callback = function()
-    --     vim.o.fillchars = vim.o.fillchars .. ",stl:━"
-    --   end,
-    -- })
     -- PERF: we don't need this lualine require madness 🤷
     local lualine_require = require("lualine_require")
     lualine_require.require = require
@@ -37,9 +27,9 @@ return {
       options = {
         icons_enabled = true,
         theme = "auto",
-        component_separators = { left = "║", right = "║" },
+        component_separators = { left = "|", right = "|" },
         section_separators = { left = "", right = "" },
-        always_show_tabline = true,
+        -- always_show_tabline = true,
         padding = { left = 1, right = 1 },
         ignore_focus = {
           "dashboard",
@@ -52,10 +42,26 @@ return {
           "terminal",
         },
       },
+
+      -- BOTTOM BAR
       sections = {
         lualine_a = { { "branch", separator = { left = "" }, right_padding = 2 } },
         lualine_b = {
-          { separator = { left = "" }, color = { fg = colors.cyan }, "filename", path = 1, right_padding = 2 },
+          {
+            separator = { left = "" },
+            color = { fg = colors.cyan },
+            "filename",
+            file_status = true,
+            path = 1,
+            right_padding = 2,
+            shorting_target = 40,
+            symbols = {
+              modified = "[+]", -- Text to show when the file is modified.
+              readonly = "[-]", -- Text to show when the file is non-modifiable or readonly.
+              unnamed = "[No Name]", -- Text to show for unnamed buffers.
+              newfile = "[New]", -- Text to show for newly created file before first write
+            },
+          },
         },
         lualine_c = {
           {
@@ -147,12 +153,14 @@ return {
         lualine_y = {},
         lualine_z = { "location" },
       },
-      winbar = {
+
+      -- TOP BAR
+      tabline = {
         lualine_a = {
           {
-            show_modified_status = true,
             -- use_mode_colors = true,
             "buffers",
+            show_modified_status = true,
             mode = 2,
             max_length = function()
               local win_count = vim.fn.winnr("$")
@@ -168,38 +176,47 @@ return {
               inactive = { fg = colors.cyan_dark, bg = colors.black }, -- Color for inactive buffer.
             },
             separator = { left = "", right = "", color = { fg = colors.red, bg = colors.orange } },
-            symbols = {
-              alternate_file = "",
-              directory = "",
-            },
+            -- symbols = {
+            --   alternate_file = "",
+            --   directory = "",
+            -- },
             right_padding = 4,
           },
         },
         lualine_b = {
-          {
-            left_padding = 4,
-            separator = { left = "", right = "║" },
-            color = { bg = colors.purple, fg = colors.black },
-            function()
-              local navic = require("nvim-navic")
-              if navic.is_available() then
-                local width = vim.api.nvim_win_get_width(0)
-                local depth_limit = math.floor(width / 20)
-                return navic.get_location({ depth_limit = math.max(depth_limit, 1) })
-              end
-              return ""
-            end,
-            cond = function()
-              local navic = require("nvim-navic")
-              return navic.is_available()
-            end,
-          },
+          -- {
+          --   left_padding = 4,
+          --   separator = { left = "" },
+          --   color = { bg = colors.purple, fg = colors.black },
+          --   function()
+          --     local navic = require("nvim-navic")
+          --     if navic.is_available() then
+          --       local width = vim.api.nvim_win_get_width(0)
+          --       local depth_limit = math.floor(width / 20)
+          --       return navic.get_location({ depth_limit = math.max(depth_limit, 1) })
+          --     end
+          --     return ""
+          --   end,
+          --   cond = function()
+          --     local navic = require("nvim-navic")
+          --     return navic.is_available()
+          --   end,
+          -- },
         },
         lualine_c = {},
         lualine_x = {},
         lualine_y = {},
-        lualine_z = {},
+        lualine_z = {
+          {
+            "tabs",
+            cond = function()
+              return #vim.fn.gettabinfo() > 1
+            end,
+          },
+        },
       },
+
+      -- winbar = " ",
       extensions = { "lazy", "fzf" },
     })
   end,
