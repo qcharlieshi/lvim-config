@@ -14,18 +14,28 @@ return {
   "nvim-lualine/lualine.nvim",
   dependencies = { "nvim-tree/nvim-web-devicons", "SmiteshP/nvim-navic" },
   opts = {
+    options = {
+      theme = "auto",
+      globalstatus = vim.o.laststatus == 3,
+      disabled_filetypes = {
+        statusline = { "dashboard", "alpha", "ministarter", "snacks_dashboard", "snacks_picker_list" },
+      },
+    },
     sections = {
       lualine_a = { { "branch", separator = { left = "" }, right_padding = 2 } },
       lualine_b = {
-        { separator = { left = "", right = "" }, color = { fg = colors.cyan }, "filename", path = 1 },
+        { separator = { left = "" }, color = { fg = colors.cyan }, "filename", path = 1, right_padding = 2 },
         -- { , separator = { left = "", right = "" }, color = { bg = colors.cyan, fg = colors.grey } },
       },
       lualine_c = {
         {
+          separator = { left = "" },
+          color = { fg = colors.black },
+          left_padding = 2,
           function()
             local navic = require("nvim-navic")
             if navic.is_available() then
-              return navic.get_location()
+              return navic.get_location({ depth_limit = 6 })
             end
             return ""
           end,
@@ -37,8 +47,7 @@ return {
         "diagnostics",
       },
       lualine_y = {
-        separator = { left = "", right = "" },
-        { "progress", color = { bg = colors.orange, fg = colors.grey } },
+        { "progress", color = { bg = colors.orange, fg = colors.grey }, separator = { left = "" } },
         { "location", color = { bg = colors.orange, fg = colors.grey } },
       },
       lualine_z = {

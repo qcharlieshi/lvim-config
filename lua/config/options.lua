@@ -5,5 +5,4 @@
 -- fixes lazyvim changing root dir unexpectedly
 vim.g.root_spec = { "cwd" }
 
--- Create visual padding using winbar (appears below tabline)
-vim.opt.winbar = " "
+-- Winbar is now handled by nvim-navic plugin

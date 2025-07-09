@@ -11,13 +11,16 @@ return {
         auto_attach = true,
         preference = nil,
       },
-      highlight = true,
       separator = " > ",
-      depth_limit = 5,
+      depth_limit = 15,
       depth_limit_indicator = "..",
       safe_output = true,
-      lazy_update_context = false,
       click = true,
+      highlight = true,
+      lazy_update_context = true,
     })
+
+    -- Setup navic on winbar
+    vim.o.winbar = "    %{%v:lua.require'nvim-navic'.get_location()%}    "
   end,
 }
