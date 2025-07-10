@@ -9,6 +9,7 @@ return {
   --   -- E.g. "BufReadPre " .. vim.fn.expand "~" .. "/my-vault/*.md"
   --   -- refer to `:h file-pattern` for more examples
   --   "BufReadPre path/to/my-vault/*.md",
+  --       modified = gitsigns.changed,
   --   "BufNewFile path/to/my-vault/*.md",
   -- },
   dependencies = {

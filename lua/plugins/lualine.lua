@@ -72,8 +72,8 @@ return {
             function()
               local navic = require("nvim-navic")
               if navic.is_available() then
-                local width = vim.api.nvim_win_get_width(0)
-                local depth_limit = math.floor(width / 5)
+                local width = vim.o.columns
+                local depth_limit = math.floor(width / 20)
                 return navic.get_location({ depth_limit = math.max(depth_limit, 1) })
               end
               return ""
@@ -118,17 +118,17 @@ return {
               modified = icons.git.modified,
               removed = icons.git.removed,
             },
-            source = function()
-              local gitsigns = vim.b.gitsigns_status_dict
-              if gitsigns then
-                return {
-                  added = gitsigns.added,
-                  modified = gitsigns.changed,
-                  removed = gitsigns.removed,
-                }
-              end
-              return { added = 0, modified = 0, removed = 0 }
-            end,
+            -- source = function()
+            --   local gitsigns = vim.b.gitsigns_status_dict
+            --   if gitsigns then
+            --     return {
+            --       added = gitsigns.added,
+            --       modified = gitsigns.changed,
+            --       removed = gitsigns.removed,
+            --     }
+            --   end
+            --   return { added = 0, modified = 0, removed = 0 }
+            -- end,
           },
         },
         lualine_y = {
@@ -165,9 +165,9 @@ return {
             max_length = function()
               local win_count = vim.fn.winnr("$")
               if win_count > 1 then
-                return vim.o.columns * 1 / 4 -- Show fewer buffers with multiple windows
+                return vim.o.columns * 2 / 4 -- Show fewer buffers with multiple windows
               else
-                return vim.o.columns * 2 / 5 -- Original length for single window
+                return vim.o.columns * 3 / 5 -- Original length for single window
               end
             end,
             -- component_separators = { left = "", right = "" },
