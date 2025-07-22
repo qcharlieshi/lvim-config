@@ -22,6 +22,6 @@ return {
 
     -- Setup navic on winbar
     -- vim.wo.winbar = "    %{%v:lua.require'nvim-navic'.get_location()%}    "
-    vim.o.winbar = "                  "
+    -- vim.o.winbar = "                  "
   end,
 }

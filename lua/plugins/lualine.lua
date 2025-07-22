@@ -30,7 +30,6 @@ return {
         component_separators = { left = "|", right = "|" },
         section_separators = { left = "", right = "" },
         -- always_show_tabline = true,
-        padding = { left = 1, right = 1 },
         ignore_focus = {
           "dashboard",
           "alpha",
@@ -39,6 +38,8 @@ return {
           "snacks_picker_list",
           "snacks_picker_input",
           "snacks_terminal",
+          "snacks_picker",
+          "claude",
           "terminal",
         },
       },
@@ -64,26 +65,33 @@ return {
           },
         },
         lualine_c = {
+          -- {
+          -- draw_empty = true,
+          -- separator = { left = "" },
+          -- color = { fg = colors.black },
+          -- left_padding = 2,
+          --   function()
+          --     local navic = require("nvim-navic")
+          --     if navic.is_available() then
+          --       local width = vim.o.columns
+          --       local depth_limit = math.floor(width / 20)
+          --       return navic.get_location({ depth_limit = math.max(depth_limit, 1) })
+          --     end
+          --     return ""
+          --   end,
+          --   cond = function()
+          --     local navic = require("nvim-navic")
+          --     return navic.is_available()
+          --   end,
+          -- },
+
           {
             draw_empty = true,
             separator = { left = "" },
             color = { fg = colors.black },
             left_padding = 2,
-            function()
-              local navic = require("nvim-navic")
-              if navic.is_available() then
-                local width = vim.o.columns
-                local depth_limit = math.floor(width / 20)
-                return navic.get_location({ depth_limit = math.max(depth_limit, 1) })
-              end
-              return ""
-            end,
-            cond = function()
-              local navic = require("nvim-navic")
-              return navic.is_available()
-            end,
+            "diagnostics",
           },
-          "diagnostics",
         },
         lualine_x = {
           Snacks.profiler.status(),
@@ -163,12 +171,7 @@ return {
             show_modified_status = true,
             mode = 2,
             max_length = function()
-              local win_count = vim.fn.winnr("$")
-              if win_count > 1 then
-                return vim.o.columns * 2 / 4 -- Show fewer buffers with multiple windows
-              else
-                return vim.o.columns * 3 / 5 -- Original length for single window
-              end
+              return vim.o.columns * 4 / 5 -- Original length for single window
             end,
             -- component_separators = { left = "", right = "" },
             buffers_color = {

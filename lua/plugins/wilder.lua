@@ -37,7 +37,8 @@ return {
     end
 
     local highlighters = wilder.highlighter_with_gradient({
-      -- wilder.pcre2_highlighter(),
+      -- requires luarocks install pcre2
+      wilder.pcre2_highlighter(),
       wilder.lua_fzy_highlighter(),
     })
 
