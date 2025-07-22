@@ -4,5 +4,3 @@
 
 -- fixes lazyvim changing root dir unexpectedly
 vim.g.root_spec = { "cwd" }
-
--- Winbar is now handled by nvim-navic plugin

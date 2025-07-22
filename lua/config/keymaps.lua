@@ -21,7 +21,7 @@ vim.keymap.set("n", "<C-J>", "<C-w>j", { noremap = true, silent = true })
 vim.keymap.set("n", "<C-K>", "<C-w>k", { noremap = true, silent = true })
 vim.keymap.set("n", "<C-L>", "<C-w>l", { noremap = true, silent = true })
 
-vim.keymap.set("n", "<leader>c.", "<cmd>ClaudeCode<CR>", { desc = "Toggle Claude Code" })
+-- vim.keymap.set("n", "<leader>c.", "<cmd>ClaudeCode<CR>", { desc = "Toggle Claude Code" })
 
 -- Jump to next/previous meaningful first-level block
 vim.keymap.set("n", "]1", "/^[a-zA-Z_]<CR>", { noremap = true, silent = true, desc = "Next first-level block" })
@@ -64,6 +64,7 @@ vim.keymap.set("n", "<leader>f.", ':let @+ = expand("%:.")<CR>', { desc = "Copy 
 --   desc = "Previous buffer in other window or vsplit",
 -- })
 --
+-- TODO: need to fix this to be more consistent
 vim.keymap.set("n", "<leader>b.", function()
   if #vim.api.nvim_list_wins() > 1 then
     vim.cmd("wincmd w | buffer #")
@@ -73,6 +74,7 @@ vim.keymap.set("n", "<leader>b.", function()
 end, { noremap = true, silent = true, desc = "Open previous buffer in window" })
 
 -- Window resize keymaps with larger increments
+-- Remaps current resize keys to use bigger intervals
 vim.keymap.set("n", "<leader>w+", "<cmd>resize +20<CR>", { desc = "Increase window height", silent = true })
 vim.keymap.set("n", "<leader>w-", "<cmd>resize -20<CR>", { desc = "Decrease window height", silent = true })
 vim.keymap.set("n", "<leader>w<", "<cmd>vertical resize -20<CR>", { desc = "Decrease window width", silent = true })
