@@ -15,13 +15,24 @@ return {
             preview = { true },
           },
         },
-        -- debug = {
-        --   grep = true, files = true, },
+        debug = {
+          grep = true,
+          files = true,
+        },
         grep = {
           debug = true,
-          -- todo --
           finder = "rg",
           supports_args = true,
+          live = true,
+          args = {
+            "--hidden",
+            "--follow",
+            "--glob=!.git",
+            "--glob=!node_modules",
+            "--glob=!*.lock",
+            "--multiline",
+          },
+          rg_glob = true,
         },
         matcher = {
           fuzzy = true, -- use fuzzy matching

@@ -27,7 +27,7 @@ return {
 
         local res = {}
 
-        if props.focused == false then
+        if props.focused == false or navic.get_data() == nil then
           res = {
             {
               { "", guifg = ft_color },

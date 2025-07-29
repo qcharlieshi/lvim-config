@@ -10,8 +10,8 @@ vim.ui.input = require("snacks").input
 vim.ui.select = require("snacks").picker.select -- if you want to override vim.ui.select as well
 
 -- Map <leader>gc to run the grep-on-changed-files function
+-- TODO: move to keybinds?
 vim.api.nvim_set_keymap("n", "<leader>ga", ":lua GrepChangedFilesWithPicker()<CR>", { noremap = true, silent = true })
-
 function GrepChangedFilesWithPicker()
   -- Determine the merge base with the upstream branch (adjust branch as needed)
   local base = vim.fn.system("git merge-base HEAD origin/main"):gsub("%s+", "")
@@ -72,6 +72,8 @@ function GrepChangedFilesWithPicker()
   end)
 end
 
+-- -- --
+--
 -- Allows syncing of neovim frame to the entire terminal screen
 vim.api.nvim_create_autocmd({ "UIEnter", "ColorScheme" }, {
   callback = function()
@@ -89,3 +91,5 @@ vim.api.nvim_create_autocmd("UILeave", {
     io.write("\027]111\027\\")
   end,
 })
+--
+-- -- --

@@ -18,7 +18,8 @@ return {
         theme = "auto",
         component_separators = { left = "|", right = "|" },
         section_separators = { left = "", right = "" },
-        -- always_show_tabline = true,
+        disabled_filetypes = {},
+        globalstatus = true,
         ignore_focus = {
           "dashboard",
           "alpha",
@@ -46,12 +47,12 @@ return {
             path = 1,
             right_padding = 2,
             shorting_target = 40,
-            symbols = {
-              modified = "[+]", -- Text to show when the file is modified.
-              readonly = "[-]", -- Text to show when the file is non-modifiable or readonly.
-              unnamed = "[No Name]", -- Text to show for unnamed buffers.
-              newfile = "[New]", -- Text to show for newly created file before first write
-            },
+            -- symbols = {
+            --   modified = "[+]", -- Text to show when the file is modified.
+            --   readonly = "[-]", -- Text to show when the file is non-modifiable or readonly.
+            --   unnamed = "[No Name]", -- Text to show for unnamed buffers.
+            --   newfile = "[New]", -- Text to show for newly created file before first write
+            -- },
           },
         },
         lualine_c = {
@@ -109,25 +110,6 @@ return {
           cond = require("lazy.status").has_updates,
           color = function() return { fg = Snacks.util.color("Special") } end,
         },
-          {
-            "diff",
-            symbols = {
-              added = icons.git.added,
-              modified = icons.git.modified,
-              removed = icons.git.removed,
-            },
-            -- source = function()
-            --   local gitsigns = vim.b.gitsigns_status_dict
-            --   if gitsigns then
-            --     return {
-            --       added = gitsigns.added,
-            --       modified = gitsigns.changed,
-            --       removed = gitsigns.removed,
-            --     }
-            --   end
-            --   return { added = 0, modified = 0, removed = 0 }
-            -- end,
-          },
         },
         lualine_y = {
           { "progress", color = { bg = colors.orange, fg = colors.grey }, separator = { left = "" } },
@@ -174,6 +156,27 @@ return {
             --   directory = "",
             -- },
             right_padding = 4,
+          },
+          {
+            function()
+              local gitsigns = vim.b.gitsigns_status_dict
+              if not gitsigns then
+                return ""
+              end
+
+              local diff_str = ""
+              if gitsigns.added and gitsigns.added > 0 then
+                diff_str = diff_str .. " " .. icons.git.added .. gitsigns.added
+              end
+              if gitsigns.changed and gitsigns.changed > 0 then
+                diff_str = diff_str .. " " .. icons.git.modified .. gitsigns.changed
+              end
+              if gitsigns.removed and gitsigns.removed > 0 then
+                diff_str = diff_str .. " " .. icons.git.removed .. gitsigns.removed
+              end
+              return diff_str
+            end,
+            color = { fg = colors.cyan_dark, bg = colors.orange },
           },
         },
         lualine_b = {

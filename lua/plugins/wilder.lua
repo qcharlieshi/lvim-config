@@ -1,14 +1,22 @@
 return {
-  "gelguy/wilder.nvim",
+  -- "gelguy/wilder.nvim",
+  "ogaken-1/wilder.nvim",
   dependencies = {
     "nvim-tree/nvim-web-devicons",
     "romgrk/fzy-lua-native",
+    -- "nixprime/cpsm",
   },
   config = function()
     local wilder = require("wilder")
     require("nvim-web-devicons").setup()
-    wilder.setup({ modes = { ":", "/", "?" } })
-    wilder.set_option("use_python_remote_plugin", 1)
+    wilder.setup({
+      modes = { ":", "/", "?" },
+      -- next_key = { "<Tab>", "j" },
+      -- previous_key = { "<S-Tab>", "k" },
+      -- accept_key = "<Down>",
+      -- reject_key = "<Up>",
+    })
+    -- wilder.set_option("use_python_remote_plugin", 1)
 
     local gradient = {
       "#f4468f",
@@ -40,6 +48,7 @@ return {
       -- requires luarocks install pcre2
       wilder.pcre2_highlighter(),
       wilder.lua_fzy_highlighter(),
+      -- wilder.python_cpsm_highlighter(),
     })
 
     wilder.set_option(
