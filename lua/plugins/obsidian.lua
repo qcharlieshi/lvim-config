@@ -1,5 +1,5 @@
 return {
-  "obsidian-nvim/obsidian.nvim",
+  "epwalsh/obsidian.nvim",
   version = "*", -- recommended, use latest release instead of latest commit
   lazy = true,
   ft = "markdown",
@@ -9,19 +9,22 @@ return {
   --   -- E.g. "BufReadPre " .. vim.fn.expand "~" .. "/my-vault/*.md"
   --   -- refer to `:h file-pattern` for more examples
   --   "BufReadPre path/to/my-vault/*.md",
-  --       modified = gitsigns.changed,
   --   "BufNewFile path/to/my-vault/*.md",
   -- },
   dependencies = {
     -- Required.
     "nvim-lua/plenary.nvim",
+
+    -- see below for full list of optional dependencies 👇
   },
   opts = {
     workspaces = {
       {
-        name = "work",
-        path = "/Users/qcharlieshi/Library/Mobile Documents/iCloud~md~obsidian/Documents/Default/",
+        name = "Default",
+        path = "/Users/qcharlieshi/Library/Mobile Documents/iCloud~md~obsidian/Documents",
       },
     },
+
+    -- see below for full list of options 👇
   },
 }
