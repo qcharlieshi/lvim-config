@@ -47,15 +47,15 @@ return {
               end
 
               local repo_name = vim.fn.fnamemodify(vim.fn.getcwd(), ":t")
-              return "" .. " " .. repo_name .. "/" .. branch
+              return "" .. " " .. repo_name .. "/" .. branch
             end,
-            separator = { left = "" },
+            separator = { left = "" },
             right_padding = 2,
           },
         },
         lualine_b = {
           {
-            separator = { left = "" },
+            separator = { left = "" },
             color = { fg = colors.cyan },
             "filename",
             file_status = true,
@@ -73,7 +73,7 @@ return {
         lualine_c = {
           -- {
           -- draw_empty = true,
-          -- separator = { left = "" },
+          -- separator = { left = "" },
           -- color = { fg = colors.black },
           -- left_padding = 2,
           --   function()
@@ -93,7 +93,7 @@ return {
 
           {
             draw_empty = true,
-            separator = { left = "" },
+            separator = { left = "" },
             color = { fg = colors.black },
             left_padding = 2,
             "diagnostics",
@@ -115,7 +115,7 @@ return {
         },
         -- stylua: ignore
         {
-          function() return "  " .. require("dap").status() end,
+          function() return "  " .. require("dap").status() end,
           cond = function() return package.loaded["dap"] and require("dap").status() ~= "" end,
           color = function() return { fg = Snacks.util.color("Debug") } end,
         },
@@ -127,12 +127,18 @@ return {
         },
         },
         lualine_y = {
-          { "progress", color = { bg = colors.orange, fg = colors.grey }, separator = { left = "" } },
+          { "progress", color = { bg = colors.orange, fg = colors.grey }, separator = { left = "" } },
           { "location", color = { bg = colors.orange, fg = colors.grey } },
+          {
+            function()
+              return vim.fn.line("$") .. "L"
+            end,
+            color = { bg = colors.orange, fg = colors.grey },
+          },
         },
         lualine_z = {
           {
-            separator = { left = "", right = "" },
+            separator = { left = "", right = "" },
             left_padding = 2,
             "filetype",
             colored = false,
@@ -152,6 +158,15 @@ return {
       -- TOP BAR
       tabline = {
         lualine_a = {
+          {
+            function()
+              return string.rep(" ", math.floor(vim.o.columns / 6))
+            end,
+            color = { bg = "NONE", fg = "NONE" },
+          },
+        },
+        lualine_b = {},
+        lualine_c = {
           {
             -- use_mode_colors = true,
             "buffers",
@@ -194,27 +209,6 @@ return {
             color = { fg = colors.cyan_dark, bg = colors.orange },
           },
         },
-        lualine_b = {
-          -- {
-          --   left_padding = 4,
-          --   separator = { left = "" },
-          --   color = { bg = colors.purple, fg = colors.black },
-          --   function()
-          --     local navic = require("nvim-navic")
-          --     if navic.is_available() then
-          --       local width = vim.api.nvim_win_get_width(0)
-          --       local depth_limit = math.floor(width / 20)
-          --       return navic.get_location({ depth_limit = math.max(depth_limit, 1) })
-          --     end
-          --     return ""
-          --   end,
-          --   cond = function()
-          --     local navic = require("nvim-navic")
-          --     return navic.is_available()
-          --   end,
-          -- },
-        },
-        lualine_c = {},
         lualine_x = {},
         lualine_y = {},
         lualine_z = {
@@ -223,6 +217,12 @@ return {
             cond = function()
               return #vim.fn.gettabinfo() > 1
             end,
+          },
+          {
+            function()
+              return string.rep(" ", math.floor(vim.o.columns / 6))
+            end,
+            color = { bg = "NONE", fg = "NONE" },
           },
         },
       },
