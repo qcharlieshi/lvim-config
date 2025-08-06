@@ -225,7 +225,7 @@ M.theAnimation = function(callback)
   require("snacks").animate(1, #M.frames + 1, function(value, ctx)
     M.ascii(value, callback)
   end, {
-    duration = 300,
+    duration = 150,
     fps = 60,
   })
 end
