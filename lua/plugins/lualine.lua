@@ -37,7 +37,22 @@ return {
 
       -- BOTTOM BAR
       sections = {
-        lualine_a = { { "branch", separator = { left = "" }, right_padding = 2 } },
+        lualine_a = {
+          {
+            function()
+              local branch = vim.b.gitsigns_head
+                or vim.fn.system("git branch --show-current 2>/dev/null"):gsub("\n", "")
+              if branch == "" then
+                return ""
+              end
+
+              local repo_name = vim.fn.fnamemodify(vim.fn.getcwd(), ":t")
+              return "" .. " " .. repo_name .. "/" .. branch
+            end,
+            separator = { left = "" },
+            right_padding = 2,
+          },
+        },
         lualine_b = {
           {
             separator = { left = "" },
@@ -47,12 +62,12 @@ return {
             path = 1,
             right_padding = 2,
             shorting_target = 40,
-            -- symbols = {
-            --   modified = "[+]", -- Text to show when the file is modified.
-            --   readonly = "[-]", -- Text to show when the file is non-modifiable or readonly.
-            --   unnamed = "[No Name]", -- Text to show for unnamed buffers.
-            --   newfile = "[New]", -- Text to show for newly created file before first write
-            -- },
+            symbols = {
+              modified = "[+]", -- Text to show when the file is modified.
+              readonly = "[-]", -- Text to show when the file is non-modifiable or readonly.
+              unnamed = "[No Name]", -- Text to show for unnamed buffers.
+              newfile = "[New]", -- Text to show for newly created file before first write
+            },
           },
         },
         lualine_c = {

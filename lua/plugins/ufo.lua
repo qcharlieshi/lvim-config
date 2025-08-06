@@ -1,3 +1,4 @@
+-- Adds folding preview
 return {
   "kevinhwang91/nvim-ufo",
   dependencies = {

@@ -3,7 +3,7 @@ require("config.lazy")
 vim.g.python3_host_prog = "/Library/Frameworks/Python.framework/Versions/3.12/bin/python3"
 
 -- use the existing buffers/tabs if avaliable
--- vim.opt.switchbuf = { "useopen", "usetab" }
+vim.opt.switchbuf = { "useopen", "usetab" }
 
 -- Ensure this runs after the Snacks plugin is loaded
 vim.ui.input = require("snacks").input
