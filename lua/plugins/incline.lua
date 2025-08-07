@@ -25,6 +25,13 @@ return {
         local ft_icon, ft_color = devicons.get_icon_color(filename)
         local modified = vim.bo[props.buf].modified
 
+        -- Check if file has git modifications
+        -- local git_modified = false
+        -- local summary = vim.b[props.buf].minidiff_summary
+        -- if summary and (summary.add or summary.change or summary.delete) then
+        --   git_modified = true
+        -- end
+
         local res = {}
 
         if props.focused == false or navic.get_data() == nil then
@@ -33,6 +40,14 @@ return {
               { "", guifg = ft_color },
               ft_icon and { " ", ft_icon, "  ", guibg = ft_color, guifg = helpers.contrast_color(ft_color) } or "",
               { "  ", filename, " ", gui = modified and "bold,italic" or "bold" },
+              -- git_modified and { " ", "", " ", guifg = "#FF6B6B" } or "",
+              {
+                " ",
+                vim.api.nvim_buf_line_count(props.buf),
+                " ",
+                gui = "italic",
+                guifg = "#888888",
+              },
             },
             guibg = helpers.contrast_color(ft_color),
           }

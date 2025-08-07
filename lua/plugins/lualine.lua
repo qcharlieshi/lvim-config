@@ -50,7 +50,7 @@ return {
 
               return "" .. " " .. repo_name .. "/" .. branch .. " "
             end,
-            separator = { left = "" },
+            -- separator = { left = "" },
           },
           {
             function()
@@ -168,7 +168,7 @@ return {
         },
         lualine_z = {
           {
-            separator = { left = "", right = "" },
+            separator = { left = "" },
             left_padding = 2,
             "filetype",
             colored = false,
@@ -190,9 +190,9 @@ return {
         lualine_a = {
           {
             function()
-              return "  " .. os.date("%a %b %d • %R")
+              return "  " .. os.date("%a %b %d • %R")
             end,
-            separator = { left = "", right = "" },
+            separator = { right = "" },
           },
           {
             function()
@@ -215,7 +215,7 @@ return {
             -- component_separators = { left = "", right = "" },
             buffers_color = {
               active = { fg = colors.grey, bg = colors.orange }, -- Color for active buffer.
-              inactive = { fg = colors.cyan_dark, bg = colors.black }, -- Color for inactive buffer.
+              inactive = { fg = colors.grey, bg = colors.cyan_dark }, -- Color for inactive buffer.
             },
             separator = { left = "", right = "" },
             -- symbols = {
@@ -250,16 +250,17 @@ return {
         lualine_y = {},
         lualine_z = {
           {
-            "tabs",
-            cond = function()
-              return #vim.fn.gettabinfo() > 1
-            end,
-          },
-          {
             function()
               return string.rep(" ", math.floor(vim.o.columns / 6))
             end,
             color = { bg = "NONE", fg = "NONE" },
+          },
+          {
+            "tabs",
+            separator = { left = "" },
+            -- cond = function()
+            --   return #vim.fn.gettabinfo() > 1
+            -- end,
           },
         },
       },
