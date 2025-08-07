@@ -190,6 +190,12 @@ return {
         lualine_a = {
           {
             function()
+              return "  " .. os.date("%a %b %d • %R")
+            end,
+            separator = { left = "", right = "" },
+          },
+          {
+            function()
               return string.rep(" ", math.floor(vim.o.columns / 6))
             end,
             color = { bg = "NONE", fg = "NONE" },
@@ -205,12 +211,13 @@ return {
             max_length = function()
               return vim.o.columns * 4 / 5 -- Original length for single window
             end,
+            -- Adds seperator between each buffer but right doesn't seem to show up?
             -- component_separators = { left = "", right = "" },
             buffers_color = {
               active = { fg = colors.grey, bg = colors.orange }, -- Color for active buffer.
               inactive = { fg = colors.cyan_dark, bg = colors.black }, -- Color for inactive buffer.
             },
-            separator = { left = "", right = "", color = { fg = colors.red, bg = colors.orange } },
+            separator = { left = "", right = "" },
             -- symbols = {
             --   alternate_file = "",
             --   directory = "",
