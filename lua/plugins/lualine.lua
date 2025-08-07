@@ -47,33 +47,63 @@ return {
               end
 
               local repo_name = vim.fn.fnamemodify(vim.fn.getcwd(), ":t")
-              return "" .. " " .. repo_name .. "/" .. branch
+
+              return "" .. " " .. repo_name .. "/" .. branch .. " "
             end,
-            separator = { left = "" },
-            right_padding = 2,
+            separator = { left = "" },
+          },
+          {
+            function()
+              local summary = vim.b.minidiff_summary
+              if not summary or not summary.add or summary.add == 0 then
+                return ""
+              end
+              return " " .. icons.git.added .. summary.add
+            end,
+            color = { fg = "#2a6b4d" },
+          },
+          {
+            function()
+              local summary = vim.b.minidiff_summary
+              if not summary or not summary.change or summary.change == 0 then
+                return ""
+              end
+              return " " .. icons.git.modified .. summary.change
+            end,
+            color = { fg = "#8b6914" },
+          },
+          {
+            function()
+              local summary = vim.b.minidiff_summary
+              if not summary or not summary.delete or summary.delete == 0 then
+                return ""
+              end
+              return " " .. icons.git.removed .. summary.delete
+            end,
+            color = { fg = "#8b2635" },
           },
         },
         lualine_b = {
           {
-            separator = { left = "" },
+            separator = { left = "" },
             color = { fg = colors.cyan },
             "filename",
             file_status = true,
             path = 1,
             right_padding = 2,
             shorting_target = 40,
-            symbols = {
-              modified = "[+]", -- Text to show when the file is modified.
-              readonly = "[-]", -- Text to show when the file is non-modifiable or readonly.
-              unnamed = "[No Name]", -- Text to show for unnamed buffers.
-              newfile = "[New]", -- Text to show for newly created file before first write
-            },
+            -- symbols = {
+            --   modified = "[+]", -- Text to show when the file is modified.
+            --   readonly = "[-]", -- Text to show when the file is non-modifiable or readonly.
+            --   unnamed = "[No Name]", -- Text to show for unnamed buffers.
+            --   newfile = "[New]", -- Text to show for newly created file before first write
+            -- },
           },
         },
         lualine_c = {
           -- {
           -- draw_empty = true,
-          -- separator = { left = "" },
+          -- separator = { left = "" },
           -- color = { fg = colors.black },
           -- left_padding = 2,
           --   function()
@@ -93,7 +123,7 @@ return {
 
           {
             draw_empty = true,
-            separator = { left = "" },
+            separator = { left = "" },
             color = { fg = colors.black },
             left_padding = 2,
             "diagnostics",
@@ -115,7 +145,7 @@ return {
         },
         -- stylua: ignore
         {
-          function() return "  " .. require("dap").status() end,
+          function() return "  " .. require("dap").status() end,
           cond = function() return package.loaded["dap"] and require("dap").status() ~= "" end,
           color = function() return { fg = Snacks.util.color("Debug") } end,
         },
@@ -127,7 +157,7 @@ return {
         },
         },
         lualine_y = {
-          { "progress", color = { bg = colors.orange, fg = colors.grey }, separator = { left = "" } },
+          { "progress", color = { bg = colors.orange, fg = colors.grey }, separator = { left = "" } },
           { "location", color = { bg = colors.orange, fg = colors.grey } },
           {
             function()
@@ -138,7 +168,7 @@ return {
         },
         lualine_z = {
           {
-            separator = { left = "", right = "" },
+            separator = { left = "", right = "" },
             left_padding = 2,
             "filetype",
             colored = false,
@@ -187,27 +217,27 @@ return {
             -- },
             right_padding = 4,
           },
-          {
-            function()
-              local gitsigns = vim.b.gitsigns_status_dict
-              if not gitsigns then
-                return ""
-              end
-
-              local diff_str = ""
-              if gitsigns.added and gitsigns.added > 0 then
-                diff_str = diff_str .. " " .. icons.git.added .. gitsigns.added
-              end
-              if gitsigns.changed and gitsigns.changed > 0 then
-                diff_str = diff_str .. " " .. icons.git.modified .. gitsigns.changed
-              end
-              if gitsigns.removed and gitsigns.removed > 0 then
-                diff_str = diff_str .. " " .. icons.git.removed .. gitsigns.removed
-              end
-              return diff_str
-            end,
-            color = { fg = colors.cyan_dark, bg = colors.orange },
-          },
+          -- {
+          --   function()
+          --     local gitsigns = vim.b.gitsigns_status_dict
+          --     if not gitsigns then
+          --       return ""
+          --     end
+          --
+          --     local diff_str = ""
+          --     if gitsigns.added and gitsigns.added > 0 then
+          --       diff_str = diff_str .. " " .. icons.git.added .. gitsigns.added
+          --     end
+          --     if gitsigns.changed and gitsigns.changed > 0 then
+          --       diff_str = diff_str .. " " .. icons.git.modified .. gitsigns.changed
+          --     end
+          --     if gitsigns.removed and gitsigns.removed > 0 then
+          --       diff_str = diff_str .. " " .. icons.git.removed .. gitsigns.removed
+          --     end
+          --     return diff_str
+          --   end,
+          --   color = { fg = colors.cyan_dark, bg = colors.orange },
+          -- },
         },
         lualine_x = {},
         lualine_y = {},
