@@ -21,8 +21,6 @@ vim.keymap.set("n", "<C-J>", "<C-w>j", { noremap = true, silent = true })
 vim.keymap.set("n", "<C-K>", "<C-w>k", { noremap = true, silent = true })
 vim.keymap.set("n", "<C-L>", "<C-w>l", { noremap = true, silent = true })
 
--- vim.keymap.set("n", "<leader>c.", "<cmd>ClaudeCode<CR>", { desc = "Toggle Claude Code" })
-
 -- Jump to next/previous meaningful first-level block
 vim.keymap.set("n", "]1", "/^[a-zA-Z_]<CR>", { noremap = true, silent = true, desc = "Next first-level block" })
 vim.keymap.set("n", "[1", "?^[a-zA-Z_]<CR>", { noremap = true, silent = true, desc = "Previous first-level block" })
