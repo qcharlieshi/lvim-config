@@ -15,10 +15,10 @@ This is a highly customized LazyVim-based Neovim configuration with extensive UI
   - `lazy.lua`: Lazy.nvim plugin manager setup
   - `keymaps.lua`: Custom keybindings (window navigation, buffer management)
   - `options.lua`: Forces root directory to stay as CWD
-  - `autocmds.lua`: Auto-commands for various behaviors
-- `lua/plugins/`: Individual plugin configurations (50+ plugins)
+  - `autocmds.lua`: Auto-commands (autosave on buffer leave/focus lost)
+- `lua/plugins/`: Individual plugin configurations (30+ plugins)
 - `lua/dashboardAnimation.lua`: Custom animated dashboard with Triforce animation
-- `lua/weather.lua`: Weather integration for dashboard
+- `lua/weather.lua`: Weather integration for dashboard (wttr.in API with 5-min cache)
 
 ### Core Plugin Ecosystem
 
@@ -31,11 +31,13 @@ This is a highly customized LazyVim-based Neovim configuration with extensive UI
 
 ### Custom Features
 
-- **Animated Dashboard**: Custom Triforce animation that plays on startup
+- **Animated Dashboard**: Custom Triforce animation that plays on startup with live weather display
+- **Weather Integration**: Fetches current weather from wttr.in with 5-minute cache and fallback handling
+- **Auto-save**: Automatically saves modified buffers on focus loss or buffer leave
 - **Enhanced Git Workflow**: Custom grep function for changed files (`<leader>ga`)
 - **Advanced Window Management**: Custom keybinds for splits and navigation
 - **Terminal Background Sync**: Matches terminal background to Neovim theme
-- **Dual-Status Layout**: Top bar shows date/buffers/tabs, bottom shows git/diagnostics
+- **Dual-Status Layout**: Top bar shows date/buffers/tabs, bottom shows git/diagnostics with mini-diff symbols
 
 ## Development Commands
 
@@ -89,3 +91,6 @@ nvim --startuptime startup.log
 - Dashboard animation state must be managed when switching between dashboard and other buffers
 - Many deprecated plugins exist with `.deprecated` suffix - these should not be activated
 - Custom MRU buffer tracking implemented in `lua/mru_buffers.lua`
+- Weather data caches for 5 minutes to reduce API calls; uses fallback if wttr.in is unavailable
+- Auto-save only triggers for normal modifiable file buffers (not special buffers or readonly files)
+- Gruvdark theme configured as an alternative colorscheme option
