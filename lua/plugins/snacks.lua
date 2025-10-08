@@ -1,4 +1,5 @@
 local dbAnim = require("dashboardAnimation")
+local weather = require("weather")
 
 vim.api.nvim_create_autocmd("FileType", {
   pattern = "snacks_dashboard",
@@ -36,6 +37,12 @@ return {
               return { header = dbAnim.asciiImg }
             end,
           },
+          function()
+            return {
+              padding = 1,
+              text = weather.get_weather_section(),
+            }
+          end,
           { section = "keys", gap = 1, padding = 1 },
           { section = "startup" },
         },
