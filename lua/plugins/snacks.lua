@@ -20,6 +20,11 @@ return {
     end,
     opts = {
       dashboard = {
+        width = 80,
+        row = nil, -- center vertically
+        col = nil, -- center horizontally
+        pane_gap = 4, -- gap between panes
+        autokeys = "1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
         on_close = function()
           dbAnim.shouldPlayAnimation = false
         end,
@@ -37,14 +42,19 @@ return {
               return { header = dbAnim.asciiImg }
             end,
           },
-          function()
-            return {
-              padding = 1,
-              text = weather.get_weather_section(),
-            }
-          end,
+          {
+            padding = 2,
+            function()
+              local weather_lines = weather.get_weather_section()
+              -- Join lines into a single header string
+              local weather_text = table.concat(weather_lines, "\n")
+              return {
+                header = weather_text,
+              }
+            end,
+          },
           { section = "keys", gap = 1, padding = 1 },
-          { section = "startup" },
+          { section = "startup", padding = 1 },
         },
         keys = {
           {
@@ -116,21 +126,20 @@ return {
             "--glob=!node_modules",
             "--glob=!*.lock",
             "--multiline",
-            "--glob",
           },
           rg_glob = true,
         },
         matcher = {
-          fuzzy = true, -- use fuzzy matching
-          smartcase = true, -- use smartcase
-          ignorecase = true, -- use ignorecase
-          sort_empty = false, -- sort results when the search string is empty
+          fuzzy = true,
+          smartcase = true,
+          ignorecase = true,
+          sort_empty = false,
           filename_bonus = true, -- give bonus for matching file names (last part of the path)
           file_pos = true, -- support patterns like `file:line:col` and `file:line`
           -- the bonusses below, possibly require string concatenation and path normalization,
           -- so this can have a performance impact for large lists and increase memory usage
           cwd_bonus = true, -- give bonus for matching files in the cwd
-          frecency = true, -- frecency bonus
+          frecency = true, -- frecency bonus, both frequency and recency
           live = true,
           buffer = true,
         },
