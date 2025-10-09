@@ -68,7 +68,7 @@
   "nvim-ufo": { "branch": "main", "commit": "72d54c31079d38d8dfc5456131b1d0fb5c0264b0" },
   "nvim-web-devicons": { "branch": "master", "commit": "b8221e42cf7287c4dcde81f232f58d7b947c210d" },
   "obsidian.nvim": { "branch": "main", "commit": "ae1f76a75c7ce36866e1d9342a8f6f5b9c2caf9b" },
-  "octo.nvim": { "branch": "master", "commit": "ca9e57772e3a570af95fb3dd01273fbe568b7cd3" },
+  "octo.nvim": { "branch": "master", "commit": "11669c0c3e59f53601f012c4c93e1a398c8ee381" },
   "one-small-step-for-vimkind": { "branch": "main", "commit": "99c22f1fa83eb9aa442cf13a23aed7197a2d4456" },
   "outline.nvim": { "branch": "main", "commit": "6b62f73a6bf317531d15a7ae1b724e85485d8148" },
   "persistence.nvim": { "branch": "main", "commit": "51eef57272742b773468949f6bd0503ec3f83874" },
@@ -99,5 +99,5 @@
   "which-key.nvim": { "branch": "main", "commit": "b4177e3eaf15fe5eb8357ebac2286d488be1ed00" },
   "wilder.nvim": { "branch": "master", "commit": "62c65e0ea1120b6b564d343a4b638c083e264d2d" },
   "yanky.nvim": { "branch": "main", "commit": "04775cc6e10ef038c397c407bc17f00a2f52b378" },
-  "yazi.nvim": { "branch": "main", "commit": "5127a4425ddc1f01c355de4dcc85f9a336c26d7f" }
+  "yazi.nvim": { "branch": "main", "commit": "59d2278ef616eff5d58691f07ca8992a13d5f5f4" }
 }
