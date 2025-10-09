@@ -1,8 +1,21 @@
 local dbAnim = require("dashboardAnimation")
 local weather = require("weather")
 
--- Fetch weather once on plugin load, not on every frame
-local weather_text = table.concat(weather.get_weather_section(), "\n")
+-- Start with loading message, fetch async
+local weather_text = "   Loading weather..."
+local weather_loaded = false
+
+-- Fetch weather asynchronously on plugin load
+vim.defer_fn(function()
+  weather_text = table.concat(weather.get_weather_section(), "\n")
+  weather_loaded = true
+  -- Update dashboard if it's currently open
+  if vim.bo.filetype == "snacks_dashboard" then
+    vim.schedule(function()
+      require("snacks").dashboard.update()
+    end)
+  end
+end, 0)
 
 vim.api.nvim_create_autocmd("FileType", {
   pattern = "snacks_dashboard",
@@ -10,8 +23,17 @@ vim.api.nvim_create_autocmd("FileType", {
     -- Reset animation state when dashboard opens
     dbAnim.shouldPlayAnimation = true
     dbAnim.asciiImg = dbAnim.frames[1]
-    -- Refresh weather data on dashboard open (but not every frame)
-    weather_text = table.concat(weather.get_weather_section(), "\n")
+
+    -- Only re-fetch if weather hasn't been loaded yet or if it's been a while
+    if not weather_loaded then
+      vim.defer_fn(function()
+        weather_text = table.concat(weather.get_weather_section(), "\n")
+        weather_loaded = true
+        vim.schedule(function()
+          require("snacks").dashboard.update()
+        end)
+      end, 0)
+    end
   end,
 })
 
