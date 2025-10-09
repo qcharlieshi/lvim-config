@@ -1,21 +1,35 @@
 local dbAnim = require("dashboardAnimation")
 local weather = require("weather")
 
--- Start with loading message, fetch async
-local weather_text = "   Loading weather..."
-local weather_loaded = false
+-- Start with fallback weather (instant, no blocking)
+local weather_text = table.concat(weather.get_weather_section(), "\n")
+local weather_fetch_started = false
 
--- Fetch weather asynchronously on plugin load
-vim.defer_fn(function()
-  weather_text = table.concat(weather.get_weather_section(), "\n")
-  weather_loaded = true
-  -- Update dashboard if it's currently open
-  if vim.bo.filetype == "snacks_dashboard" then
-    vim.schedule(function()
-      require("snacks").dashboard.update()
-    end)
+-- Helper function to fetch and update weather
+local function fetch_and_update_weather()
+  if weather_fetch_started then
+    return -- Already fetching, don't start another request
   end
-end, 0)
+  weather_fetch_started = true
+
+  weather.fetch_weather_async(function(weather_data)
+    local lines = vim.split(weather_data, "\n")
+    -- Remove empty lines at the end
+    while #lines > 0 and lines[#lines]:match("^%s*$") do
+      table.remove(lines)
+    end
+    weather_text = table.concat(lines, "\n")
+    weather_fetch_started = false
+
+    -- Update dashboard if it's currently open
+    if vim.bo.filetype == "snacks_dashboard" then
+      require("snacks").dashboard.update()
+    end
+  end)
+end
+
+-- Start async fetch immediately (won't block)
+fetch_and_update_weather()
 
 vim.api.nvim_create_autocmd("FileType", {
   pattern = "snacks_dashboard",
@@ -23,17 +37,6 @@ vim.api.nvim_create_autocmd("FileType", {
     -- Reset animation state when dashboard opens
     dbAnim.shouldPlayAnimation = true
     dbAnim.asciiImg = dbAnim.frames[1]
-
-    -- Only re-fetch if weather hasn't been loaded yet or if it's been a while
-    if not weather_loaded then
-      vim.defer_fn(function()
-        weather_text = table.concat(weather.get_weather_section(), "\n")
-        weather_loaded = true
-        vim.schedule(function()
-          require("snacks").dashboard.update()
-        end)
-      end, 0)
-    end
   end,
 })
 

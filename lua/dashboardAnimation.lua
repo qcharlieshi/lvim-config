@@ -232,7 +232,7 @@ M.theAnimation = function(callback)
     M.ascii(value, callback)
   end, {
     duration = 150,
-    fps = 24,  -- Reduced from 60 to 24 FPS - still smooth but 2.5x less CPU
+    fps = 24, -- Reduced from 60 to 24 FPS - still smooth but 2.5x less CPU
   })
 end
 
