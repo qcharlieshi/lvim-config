@@ -21,6 +21,7 @@
 local M = {}
 
 M.shouldPlayAnimation = true
+M.lastRenderedFrame = nil
 
 M.frames = {
   [[
@@ -214,7 +215,12 @@ M.ascii = function(counting, callback)
 
   -- local frameCount = #frames < math.floor(counting) and frames[#frames] or frames[math.floor(counting)]
   M.asciiImg = #M.frames < math.floor(counting) and M.frames[#M.frames] or M.frames[math.floor(counting)]
-  Snacks.dashboard.update()
+
+  -- Only update dashboard if the frame actually changed
+  if M.asciiImg ~= M.lastRenderedFrame then
+    M.lastRenderedFrame = M.asciiImg
+    Snacks.dashboard.update()
+  end
 
   if counting >= #M.frames + 1 then
     callback(callback)
@@ -226,7 +232,7 @@ M.theAnimation = function(callback)
     M.ascii(value, callback)
   end, {
     duration = 150,
-    fps = 60,
+    fps = 24,  -- Reduced from 60 to 24 FPS - still smooth but 2.5x less CPU
   })
 end
 

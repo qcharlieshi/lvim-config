@@ -1,12 +1,17 @@
 local dbAnim = require("dashboardAnimation")
 local weather = require("weather")
 
+-- Fetch weather once on plugin load, not on every frame
+local weather_text = table.concat(weather.get_weather_section(), "\n")
+
 vim.api.nvim_create_autocmd("FileType", {
   pattern = "snacks_dashboard",
   callback = function()
     -- Reset animation state when dashboard opens
     dbAnim.shouldPlayAnimation = true
     dbAnim.asciiImg = dbAnim.frames[1]
+    -- Refresh weather data on dashboard open (but not every frame)
+    weather_text = table.concat(weather.get_weather_section(), "\n")
   end,
 })
 
@@ -45,12 +50,7 @@ return {
           {
             padding = 2,
             function()
-              local weather_lines = weather.get_weather_section()
-              -- Join lines into a single header string
-              local weather_text = table.concat(weather_lines, "\n")
-              return {
-                header = weather_text,
-              }
+              return { header = weather_text }
             end,
           },
           { section = "keys", gap = 1, padding = 1 },
@@ -118,7 +118,7 @@ return {
           finder = "rg",
           supports_args = true,
           live = true,
-          -- TODO: figure out globs
+          -- TODO: figure out globs, they can't be done (?)
           args = {
             "--hidden",
             "--follow",
