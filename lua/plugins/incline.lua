@@ -17,6 +17,11 @@ return {
         overlap = { borders = true, winbar = true },
       },
       render = function(props)
+        -- Guard against invalid buffers
+        if not props.buf or not vim.api.nvim_buf_is_valid(props.buf) then
+          return {}
+        end
+
         local filename = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(props.buf), ":t")
         if filename == "" then
           filename = "[No Name]"
