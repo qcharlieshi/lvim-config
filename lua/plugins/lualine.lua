@@ -1,4 +1,5 @@
 local colors = require("config.colors").colors
+local perf = require("config.performance")
 
 return {
   "nvim-lualine/lualine.nvim",
@@ -131,6 +132,43 @@ return {
         },
         lualine_x = {
           Snacks.profiler.status(),
+          -- Performance monitoring
+          {
+            function()
+              return " " .. perf.fps_status()
+            end,
+            color = { fg = colors.cyan },
+          },
+          {
+            function()
+              return "⏱ " .. perf.latency_status()
+            end,
+            color = function()
+              local latency = perf.get_latency()
+              if latency > 50 then
+                return { fg = "#8b2635" } -- Red for high latency
+              elseif latency > 20 then
+                return { fg = "#8b6914" } -- Yellow for medium latency
+              else
+                return { fg = "#2a6b4d" } -- Green for low latency
+              end
+            end,
+          },
+          {
+            function()
+              return "⌨ " .. perf.input_lag_status()
+            end,
+            color = function()
+              local lag = perf.get_input_lag()
+              if lag > 100 then
+                return { fg = "#8b2635" } -- Red for high input lag
+              elseif lag > 50 then
+                return { fg = "#8b6914" } -- Yellow for medium input lag
+              else
+                return { fg = "#2a6b4d" } -- Green for low input lag
+              end
+            end,
+          },
         -- stylua: ignore
         {
           function() return require("noice").api.status.command.get() end,
