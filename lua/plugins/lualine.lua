@@ -196,7 +196,7 @@ return {
           },
           {
             function()
-              return string.rep(" ", math.floor(vim.o.columns / 6))
+              return string.rep(" ", math.floor(vim.o.columns / 12))
             end,
             color = { bg = "NONE", fg = "NONE" },
           },
@@ -222,6 +222,7 @@ return {
             --   alternate_file = "",
             --   directory = "",
             -- },
+            left_padding = 2,
             right_padding = 4,
           },
           -- {
@@ -251,7 +252,7 @@ return {
         lualine_z = {
           {
             function()
-              return string.rep(" ", math.floor(vim.o.columns / 6))
+              return string.rep(" ", math.floor(vim.o.columns / 12))
             end,
             color = { bg = "NONE", fg = "NONE" },
           },
