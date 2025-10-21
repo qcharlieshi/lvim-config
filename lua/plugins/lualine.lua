@@ -143,31 +143,19 @@ return {
             function()
               return "⏱ " .. perf.latency_status()
             end,
-            color = function()
-              local latency = perf.get_latency()
-              if latency > 50 then
-                return { fg = "#8b2635" } -- Red for high latency
-              elseif latency > 20 then
-                return { fg = "#8b6914" } -- Yellow for medium latency
-              else
-                return { fg = "#2a6b4d" } -- Green for low latency
-              end
-            end,
+            color = perf.get_latency_color,
           },
           {
             function()
               return "⌨ " .. perf.input_lag_status()
             end,
-            color = function()
-              local lag = perf.get_input_lag()
-              if lag > 100 then
-                return { fg = "#8b2635" } -- Red for high input lag
-              elseif lag > 50 then
-                return { fg = "#8b6914" } -- Yellow for medium input lag
-              else
-                return { fg = "#2a6b4d" } -- Green for low input lag
-              end
+            color = perf.get_input_lag_color,
+          },
+          {
+            function()
+              return "📂 " .. perf.buffer_load_status()
             end,
+            color = perf.get_buffer_load_color,
           },
         -- stylua: ignore
         {
