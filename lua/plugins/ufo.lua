@@ -7,6 +7,10 @@ return {
   event = "VeryLazy",
   opts = {
     provider_selector = function(bufnr, filetype, buftype)
+      -- Disable folding for dashboard and special buffers
+      if filetype == "snacks_dashboard" or filetype == "" or buftype ~= "" then
+        return ""
+      end
       return { "treesitter", "indent" }
     end,
     preview = {

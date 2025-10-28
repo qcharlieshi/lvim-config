@@ -23,7 +23,15 @@ local function fetch_and_update_weather()
 
     -- Update dashboard if it's currently open
     if vim.bo.filetype == "snacks_dashboard" then
+      local current_buf = vim.api.nvim_get_current_buf()
       require("snacks").dashboard.update()
+      -- Ensure folding stays disabled after update
+      vim.schedule(function()
+        -- Check if buffer is still valid and is still the dashboard
+        if vim.api.nvim_buf_is_valid(current_buf) and vim.bo[current_buf].filetype == "snacks_dashboard" then
+          disable_dashboard_folding(current_buf)
+        end
+      end)
     end
   end)
 end
@@ -31,12 +39,64 @@ end
 -- Start async fetch immediately (won't block)
 fetch_and_update_weather()
 
+-- Helper to disable folding in dashboard
+local function disable_dashboard_folding(bufnr)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+  if not vim.api.nvim_buf_is_valid(bufnr) then
+    return
+  end
+
+  -- Only apply to dashboard buffers
+  local ft_ok, filetype = pcall(vim.api.nvim_buf_get_option, bufnr, "filetype")
+  if not ft_ok or filetype ~= "snacks_dashboard" then
+    return
+  end
+
+  -- Get all windows showing this buffer
+  local ok, wins = pcall(vim.fn.win_findbuf, bufnr)
+  if not ok or not wins then
+    return
+  end
+
+  for _, win in ipairs(wins) do
+    if vim.api.nvim_win_is_valid(win) then
+      -- Set window-local options
+      pcall(vim.api.nvim_set_option_value, "foldenable", false, { win = win })
+      pcall(vim.api.nvim_set_option_value, "foldcolumn", "0", { win = win })
+      pcall(vim.api.nvim_set_option_value, "foldlevel", 99, { win = win })
+    end
+  end
+
+  -- Set buffer-local options
+  pcall(vim.api.nvim_set_option_value, "foldmethod", "manual", { buf = bufnr })
+
+  -- Clear any existing folds (only if we're in that buffer)
+  if bufnr == vim.api.nvim_get_current_buf() then
+    pcall(vim.cmd, "normal! zE")
+  end
+end
+
 vim.api.nvim_create_autocmd("FileType", {
   pattern = "snacks_dashboard",
-  callback = function()
+  callback = function(ev)
     -- Reset animation state when dashboard opens
     dbAnim.shouldPlayAnimation = true
     dbAnim.asciiImg = dbAnim.frames[1]
+
+    -- Disable folding
+    disable_dashboard_folding(ev.buf)
+  end,
+})
+
+-- Also catch BufWinEnter and WinEnter to ensure folding stays disabled
+vim.api.nvim_create_autocmd({ "BufWinEnter", "WinEnter" }, {
+  pattern = "*",
+  callback = function(ev)
+    if vim.bo[ev.buf].filetype == "snacks_dashboard" then
+      vim.schedule(function()
+        disable_dashboard_folding(ev.buf)
+      end)
+    end
   end,
 })
 
