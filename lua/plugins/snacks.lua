@@ -5,40 +5,6 @@ local weather = require("weather")
 local weather_text = table.concat(weather.get_weather_section(), "\n")
 local weather_fetch_started = false
 
--- Helper function to fetch and update weather
-local function fetch_and_update_weather()
-  if weather_fetch_started then
-    return -- Already fetching, don't start another request
-  end
-  weather_fetch_started = true
-
-  weather.fetch_weather_async(function(weather_data)
-    local lines = vim.split(weather_data, "\n")
-    -- Remove empty lines at the end
-    while #lines > 0 and lines[#lines]:match("^%s*$") do
-      table.remove(lines)
-    end
-    weather_text = table.concat(lines, "\n")
-    weather_fetch_started = false
-
-    -- Update dashboard if it's currently open
-    if vim.bo.filetype == "snacks_dashboard" then
-      local current_buf = vim.api.nvim_get_current_buf()
-      require("snacks").dashboard.update()
-      -- Ensure folding stays disabled after update
-      vim.schedule(function()
-        -- Check if buffer is still valid and is still the dashboard
-        if vim.api.nvim_buf_is_valid(current_buf) and vim.bo[current_buf].filetype == "snacks_dashboard" then
-          disable_dashboard_folding(current_buf)
-        end
-      end)
-    end
-  end)
-end
-
--- Start async fetch immediately (won't block)
-fetch_and_update_weather()
-
 -- Helper to disable folding in dashboard
 local function disable_dashboard_folding(bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
@@ -75,6 +41,44 @@ local function disable_dashboard_folding(bufnr)
     pcall(vim.cmd, "normal! zE")
   end
 end
+
+-- Helper function to fetch and update weather
+local function fetch_and_update_weather()
+  if weather_fetch_started then
+    return -- Already fetching, don't start another request
+  end
+  weather_fetch_started = true
+
+  weather.fetch_weather_async(function(weather_data)
+    local lines = vim.split(weather_data, "\n")
+    -- Remove empty lines at the end
+    while #lines > 0 and lines[#lines]:match("^%s*$") do
+      table.remove(lines)
+    end
+    weather_text = table.concat(lines, "\n")
+    weather_fetch_started = false
+
+    -- Update dashboard if it's currently open
+    local current_buf = vim.api.nvim_get_current_buf()
+    local ft_ok, filetype = pcall(vim.api.nvim_buf_get_option, current_buf, "filetype")
+
+    if ft_ok and filetype == "snacks_dashboard" then
+      local snacks_ok, snacks = pcall(require, "snacks")
+      if snacks_ok and snacks.dashboard then
+        pcall(snacks.dashboard.update)
+        -- Ensure folding stays disabled after update
+        vim.schedule(function()
+          if current_buf and vim.api.nvim_buf_is_valid(current_buf) then
+            disable_dashboard_folding(current_buf)
+          end
+        end)
+      end
+    end
+  end)
+end
+
+-- Start async fetch immediately (won't block)
+fetch_and_update_weather()
 
 vim.api.nvim_create_autocmd("FileType", {
   pattern = "snacks_dashboard",
