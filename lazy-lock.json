@@ -12,7 +12,6 @@
   "edgy.nvim": { "branch": "main", "commit": "8bfd2808994a988c975694122f68624b8a219f5f" },
   "flash.nvim": { "branch": "main", "commit": "fcea7ff883235d9024dc41e638f164a450c14ca2" },
   "friendly-snippets": { "branch": "main", "commit": "572f5660cf05f8cd8834e096d7b4c921ba18e175" },
-  "fzy-lua-native": { "branch": "master", "commit": "9d720745d5c2fb563c0d86c17d77612a3519c506" },
   "grug-far.nvim": { "branch": "main", "commit": "b58b2d65863f4ebad88b10a1ddd519e5380466e0" },
   "harpoon": { "branch": "harpoon2", "commit": "87b1a3506211538f460786c23f98ec63ad9af4e5" },
   "hbac.nvim": { "branch": "main", "commit": "2c85485ea28e5e3754650829e0bca612960e1b73" },
@@ -97,7 +96,6 @@
   "vim-illuminate": { "branch": "master", "commit": "0d1e93684da00ab7c057410fecfc24f434698898" },
   "vim-tmux-navigator": { "branch": "master", "commit": "c45243dc1f32ac6bcf6068e5300f3b2b237e576a" },
   "which-key.nvim": { "branch": "main", "commit": "3aab2147e74890957785941f0c1ad87d0a44c15a" },
-  "wilder.nvim": { "branch": "master", "commit": "62c65e0ea1120b6b564d343a4b638c083e264d2d" },
   "yanky.nvim": { "branch": "main", "commit": "04775cc6e10ef038c397c407bc17f00a2f52b378" },
   "yazi.nvim": { "branch": "main", "commit": "898e04b8a78de6ffb6932dc7ed595e19b78c5f1f" }
 }
