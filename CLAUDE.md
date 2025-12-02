@@ -6,101 +6,131 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a highly customized LazyVim-based Neovim configuration with extensive UI customizations, custom keybindings, and specialized plugins for development workflows.
 
-## Key Architecture Components
+## Architecture & Design Decisions
 
 ### Configuration Structure
 
-- `init.lua`: Main entry point with Python path setup, custom grep function (`GrepChangedFilesWithPicker`), and terminal background sync (OSC 11/111 escape codes)
-- `lua/config/`: Core LazyVim configuration overrides
-  - `lazy.lua`: Lazy.nvim plugin manager setup
-  - `keymaps.lua`: Custom keybindings (window navigation, buffer management)
-  - `options.lua`: Forces root directory to stay as CWD (`vim.g.root_spec = { "cwd" }`)
-  - `autocmds.lua`: Auto-save on `BufLeave`/`FocusLost` for normal modifiable buffers
-- `lua/plugins/`: Individual plugin configurations (38 total, 8 deprecated)
-- `lua/dashboardAnimation.lua`: Custom Triforce animation using Braille characters with state management
-- `lua/weather.lua`: Weather integration via wttr.in API with 5-minute cache and fallback handling
-
-### Core Plugin Ecosystem
-
-- **UI Framework**: Snacks.nvim powers dashboard (with animation), picker (fullscreen), and profiler
-- **Status Line**: Dual-bar lualine layout (top: date/buffers/tabs, bottom: git/diagnostics with mini-diff symbols)
-- **File Management**: Yazi integration for terminal file manager, HBAC for intelligent buffer auto-close
-- **Search & Navigation**: Snacks picker using ripgrep/fd with fullscreen layout
-- **Git Integration**: Mini-diff for inline change indicators, diffview for comprehensive diffs
-- **Development Tools**: LSP configs, obsidian notes integration, recall for AI assistance
+- `init.lua`: Main entry point containing:
+  - Python path setup (hardcoded to `/Library/Frameworks/Python.framework/Versions/3.12/bin/python3`)
+  - `GrepChangedFilesWithPicker()` function for git-aware searching
+  - Terminal background sync using OSC escape codes (OSC 11/111)
+- `lua/config/`: Core LazyVim overrides
+  - `options.lua`: **Forces root directory to stay as CWD** (`vim.g.root_spec = { "cwd" }`) - this is critical to prevent LazyVim from auto-changing directories
+  - `autocmds.lua`: Auto-save on `BufLeave`/`FocusLost` (only for normal modifiable file buffers)
+  - `keymaps.lua`: Custom keybindings (see below)
+- `lua/plugins/`: Individual plugin configs (32 active, 8 deprecated with `.deprecated` suffix - **do not modify deprecated files**)
+- `lua/dashboardAnimation.lua`: Triforce animation frames using Braille characters with state management
+- `lua/weather.lua`: wttr.in integration with 5-minute cache and async fetch
 
 ### Critical Implementation Details
 
-1. **Dashboard Animation State**: `shouldPlayAnimation` flag in `dashboardAnimation.lua` prevents re-animation on buffer switches. Folding is explicitly disabled for dashboard buffers via window/buffer options.
+**Dashboard Animation State Management:**
 
-2. **Terminal Background Sync**: Uses OSC 11 (set background) and OSC 111 (reset) escape codes on `UIEnter`/`ColorScheme` and `UILeave` events to match terminal background to Neovim theme.
+- `shouldPlayAnimation` flag in `dashboardAnimation.lua` prevents re-animation on buffer switches
+- Folding is explicitly disabled for dashboard buffers via multiple autocmds (`FileType`, `BufWinEnter`, `WinEnter`)
+- Animation plays once on startup (100ms delay), then stops when dashboard closes or any action is taken
+- `lastRenderedFrame` optimization prevents unnecessary dashboard updates
 
-3. **Custom Grep Function**: `GrepChangedFilesWithPicker()` in `init.lua` finds merge-base with origin/main, greps only changed files, presents results via `vim.ui.select` (overridden by Snacks).
+**Terminal Background Sync:**
 
-4. **Buffer Reuse**: `switchbuf = {"useopen", "usetab"}` makes Neovim intelligently reuse existing buffers/tabs when opening files.
+- Uses OSC 11 (set background) on `UIEnter`/`ColorScheme` events
+- Uses OSC 111 (reset background) on `UILeave` event
+- Reads `Normal` highlight background color and syncs entire terminal frame to match Neovim theme
 
-5. **Weather Integration**: Non-blocking async fetch with 5-minute cache, immediate fallback display, updates dashboard after fetch completes.
+**Custom Git-Aware Grep (`<leader>ga`):**
 
-6. **Deprecated Plugins**: 8 plugins have `.deprecated` suffix - these should not be activated or modified.
+- Finds merge-base with `origin/main` using `git merge-base HEAD origin/main`
+- Runs grep only on changed files since merge-base
+- Uses `vim.ui.select` (overridden by Snacks picker) to present results
+- Result format: `filename:line:match` - clicking navigates to that line
+
+**Weather Integration:**
+
+- Async fetch using `vim.system` (Neovim 0.10+) with 3-second timeout
+- Displays fallback immediately, updates after fetch completes
+- 5-minute cache (`M.cache.ttl = 300`) reduces API calls
+- `weather_fetch_started` flag prevents duplicate concurrent requests
+
+**Buffer Reuse Strategy:**
+
+- `switchbuf = {"useopen", "usetab"}` in `init.lua:6` - reuses existing buffers/tabs when opening files
+- Prevents buffer proliferation and maintains workspace organization
 
 ## Development Commands
 
-### Formatting & Linting
+### Formatting
 
 ```bash
-# Format Lua files (2-space indent, 120 char width)
-stylua . --config-path=stylua.toml
-
-# Check Lua syntax (if luacheck installed)
-luacheck lua/
+stylua . --config-path=stylua.toml  # 2-space indent, 120 char width
 ```
 
 ### Plugin Management
 
 ```bash
-# Update plugins
-nvim -c "Lazy update" -c "qa"
-
-# Profile startup time
-nvim --startuptime startup.log
-
-# Check plugin status
-nvim -c "Lazy check"
+:Lazy update          # Update all plugins
+:Lazy check           # Check for plugin issues
+:Lazy profile         # Profile startup time
+nvim --startuptime startup.log  # Detailed startup profiling
 ```
 
 ## Custom Keybindings
 
-### Buffer & Directory Management
+**Buffer & Directory Management:**
 
-- `<leader>ba`: Set buffer directory as CWD
-- `<leader>b.`: Open previous buffer in other window/split
+- `<leader>ba`: Set buffer directory as CWD (useful when `root_spec = cwd` but you want to switch context)
+- `<leader>b.`: Open previous buffer in other window/split (creates vsplit if no other window exists)
 - `<leader>f.`: Copy relative file path to clipboard
 
-### Git Workflow
+**Git Workflow:**
 
-- `<leader>ga`: Grep through git changed files (merge-base with origin/main) using Snacks picker
+- `<leader>ga`: Grep through git changed files (merge-base with origin/main)
 
-### Window Navigation
+**Window Navigation & Resizing:**
 
 - `w + <Arrow Keys>`: Navigate between windows
-- `<leader>w+/-/</>`: Resize windows by 20 lines/columns
+- `<C-h/j/k/l>`: Alternative window navigation
+- `<leader>w+/-`: Resize window height by 20 lines
+- `<leader>w</>`: Resize window width by 20 columns
 
-### Code Navigation
+**Code Navigation:**
 
-- `]1` / `[1]`: Jump to next/previous top-level code block
+- `]1` / `[1]`: Jump to next/previous top-level code block (searches for `^[a-zA-Z_]` pattern)
 
-## Code Style
+## Code Style & Conventions
 
-- **Lua**: 2-space indentation, 120 character line width (stylua.toml)
+- **Lua**: 2-space indentation, 120 character line width (enforced by `stylua.toml`)
 - **Plugin configs**: Each plugin in separate file under `lua/plugins/`
 - **Naming**: Snake case for files, camelCase for Lua functions
 - **Comments**: Minimal, focus on "why" not "what"
 
-## Important Notes
+## Plugin Ecosystem
 
-- **Root Directory**: Forced to stay as CWD via `vim.g.root_spec = { "cwd" }` in `options.lua` - prevents LazyVim auto-detection
-- **Python Path**: Hardcoded to `/Library/Frameworks/Python.framework/Versions/3.12/bin/python3` in `init.lua:3`
-- **Dashboard State**: Animation plays once on startup; state managed via `shouldPlayAnimation` flag
-- **Auto-save**: Only triggers for normal modifiable file buffers (not special buffers or readonly)
-- **Weather Caching**: 5-minute cache in `weather.lua` reduces wttr.in API calls
-- **Deprecated Files**: Do not activate or modify any `*.deprecated` plugin files
+**Core UI:**
+
+- `snacks.nvim`: Dashboard (with animation), fullscreen picker, profiler
+- `lualine.nvim`: Dual-bar statusline (top: date/buffers/tabs, bottom: git/diagnostics)
+- `gruvdark`: Custom theme
+
+**File Management:**
+
+- `yazi.nvim`: Terminal file manager integration
+- `hbac.nvim`: Automatic buffer cleanup (intelligent closing of unused buffers)
+
+**Git:**
+
+- `mini.diff`: Inline git change indicators (used in statusline)
+- `diffview.nvim`: Comprehensive diff views
+
+**Search & Navigation:**
+
+- `snacks.picker`: Fullscreen fuzzy finder (uses ripgrep/fd)
+  - Custom grep args: `--hidden`, `--follow`, `--multiline`
+  - Excludes: `.git`, `node_modules`, `*.lock`
+
+## Important Behavioral Notes
+
+- **Root directory never auto-changes** due to `vim.g.root_spec = { "cwd" }` - use `<leader>ba` to manually change if needed
+- **Dashboard animation only plays once** on startup to avoid performance issues and visual distractions
+- **Auto-save only affects normal files** - special buffers, readonly files, and unnamed buffers are excluded
+- **Weather displays fallback immediately** - real weather updates asynchronously without blocking startup
+- **Deprecated plugins (8 files)** are kept for reference but should not be activated or modified
