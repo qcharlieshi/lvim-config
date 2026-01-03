@@ -16,10 +16,11 @@ vim.keymap.set("n", "w<Left>", "<C-w>h", { desc = "Move to the window on the lef
 vim.keymap.set("n", "w<Up>", "<C-w>k", { desc = "Move to the window above", silent = true })
 vim.keymap.set("n", "w<Down>", "<C-w>j", { desc = "Move to the window below", silent = true })
 
-vim.keymap.set("n", "<C-H>", "<C-w>h", { noremap = true, silent = true })
-vim.keymap.set("n", "<C-J>", "<C-w>j", { noremap = true, silent = true })
-vim.keymap.set("n", "<C-K>", "<C-w>k", { noremap = true, silent = true })
-vim.keymap.set("n", "<C-L>", "<C-w>l", { noremap = true, silent = true })
+-- Might be getting in the way ov vim-tmux, add back if not
+-- vim.keymap.set("n", "<C-H>", "<C-w>h", { noremap = true, silent = true })
+-- vim.keymap.set("n", "<C-J>", "<C-w>j", { noremap = true, silent = true })
+-- vim.keymap.set("n", "<C-K>", "<C-w>k", { noremap = true, silent = true })
+-- vim.keymap.set("n", "<C-L>", "<C-w>l", { noremap = true, silent = true })
 
 -- Jump to next/previous meaningful first-level block
 vim.keymap.set("n", "]1", "/^[a-zA-Z_]<CR>", { noremap = true, silent = true, desc = "Next first-level block" })

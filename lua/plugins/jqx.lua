@@ -1,3 +1,4 @@
+-- prettifies json --
 return {
   "gennaro-tedesco/nvim-jqx",
   event = { "BufReadPost" },

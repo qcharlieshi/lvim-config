@@ -18,7 +18,7 @@ This is a highly customized LazyVim-based Neovim configuration with extensive UI
   - `options.lua`: **Forces root directory to stay as CWD** (`vim.g.root_spec = { "cwd" }`) - this is critical to prevent LazyVim from auto-changing directories
   - `autocmds.lua`: Auto-save on `BufLeave`/`FocusLost` (only for normal modifiable file buffers)
   - `keymaps.lua`: Custom keybindings (see below)
-- `lua/plugins/`: Individual plugin configs (32 active, 8 deprecated with `.deprecated` suffix - **do not modify deprecated files**)
+- `lua/plugins/`: Individual plugin configs (multiple active plugins, 8 files with `.deprecated` suffix - **do not modify deprecated files**)
 - `lua/dashboardAnimation.lua`: Triforce animation frames using Braille characters with state management
 - `lua/weather.lua`: wttr.in integration with 5-minute cache and async fetch
 
@@ -64,16 +64,36 @@ This is a highly customized LazyVim-based Neovim configuration with extensive UI
 stylua . --config-path=stylua.toml  # 2-space indent, 120 char width
 ```
 
+### Testing & Diagnostics
+
+```bash
+nvim --startuptime startup.log  # Profile startup time in detail
+nvim --clean -u init.lua        # Test config without existing state
+:checkhealth                    # Check Neovim health and plugin status
+:LspInfo                        # Check LSP server status
+```
+
 ### Plugin Management
 
 ```bash
 :Lazy update          # Update all plugins
 :Lazy check           # Check for plugin issues
 :Lazy profile         # Profile startup time
-nvim --startuptime startup.log  # Detailed startup profiling
+:Lazy restore         # Restore plugins from lazy-lock.json
 ```
 
 ## Custom Keybindings
+
+**Dashboard Actions (Snacks Dashboard):**
+
+- `f`: Find file
+- `n`: New file
+- `g`: Find text (live grep)
+- `r`: Recent files
+- `c`: Config files
+- `s`: Restore session
+- `l`: Lazy plugin manager
+- `q`: Quit
 
 **Buffer & Directory Management:**
 
@@ -88,7 +108,7 @@ nvim --startuptime startup.log  # Detailed startup profiling
 **Window Navigation & Resizing:**
 
 - `w + <Arrow Keys>`: Navigate between windows
-- `<C-h/j/k/l>`: Alternative window navigation
+- `<C-h/j/k/l>`: Disabled (commented out to avoid conflicts with vim-tmux-navigator)
 - `<leader>w+/-`: Resize window height by 20 lines
 - `<leader>w</>`: Resize window width by 20 columns
 

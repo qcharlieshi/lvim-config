@@ -112,6 +112,14 @@ return {
         dbAnim.theAnimation(dbAnim.theAnimation)
       end, 100)
     end,
+    config = function(_, opts)
+      -- Set up snacks with opts
+      require("snacks").setup(opts)
+
+      -- Override vim.ui after snacks is loaded
+      vim.ui.input = require("snacks").input
+      vim.ui.select = require("snacks").picker.select
+    end,
     opts = {
       dashboard = {
         width = 80,

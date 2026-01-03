@@ -5,10 +5,6 @@ vim.g.python3_host_prog = "/Library/Frameworks/Python.framework/Versions/3.12/bi
 -- use the existing buffers/tabs if avaliable
 vim.opt.switchbuf = { "useopen", "usetab" }
 
--- Ensure this runs after the Snacks plugin is loaded
-vim.ui.input = require("snacks").input
-vim.ui.select = require("snacks").picker.select -- if you want to override vim.ui.select as well
-
 -- Map <leader>gc to run the grep-on-changed-files function
 -- TODO: move to keybinds?
 vim.api.nvim_set_keymap("n", "<leader>ga", ":lua GrepChangedFilesWithPicker()<CR>", { noremap = true, silent = true })
