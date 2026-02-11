@@ -26,22 +26,51 @@ return {
         --     }
         --   end
         -- end,
+        tsgo = function()
+          local configs = require("lspconfig.configs")
+          if not configs.tsgo then
+            configs.tsgo = {
+              default_config = {
+                cmd = { "tsgo", "--lsp", "--stdio" },
+                filetypes = {
+                  "javascript",
+                  "javascriptreact",
+                  "javascript.jsx",
+                  "typescript",
+                  "typescriptreact",
+                  "typescript.tsx",
+                },
+                root_dir = require("lspconfig.util").root_pattern(
+                  "tsconfig.json",
+                  "tsconfig.base.json",
+                  "jsconfig.json",
+                  "package.json",
+                  ".git"
+                ),
+                single_file_support = true,
+              },
+            }
+          end
+        end,
       },
       servers = {
-        vtsls = {
-          settings = {
-            typescript = {
-              tsserver = {
-                maxTsServerMemory = 16192,
-              },
-            },
-            javascript = {
-              tsserver = {
-                maxTsServerMemory = 16192,
-              },
-            },
-          },
-        },
+        -- vtsls (commented out in favor of tsgo)
+        -- vtsls = {
+        --   settings = {
+        --     typescript = {
+        --       tsserver = {
+        --         maxTsServerMemory = 16192,
+        --       },
+        --     },
+        --     javascript = {
+        --       tsserver = {
+        --         maxTsServerMemory = 16192,
+        --       },
+        --     },
+        --   },
+        -- },
+        vtsls = { enabled = false },
+        tsgo = {},
         -- sith_lsp = {
         --   settings = {
         --     ruff = {
