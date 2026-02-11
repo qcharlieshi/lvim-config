@@ -112,20 +112,12 @@ return {
         dbAnim.theAnimation(dbAnim.theAnimation)
       end, 100)
     end,
-    config = function(_, opts)
-      -- Set up snacks with opts
-      require("snacks").setup(opts)
-
-      -- Override vim.ui after snacks is loaded
-      vim.ui.input = require("snacks").input
-      vim.ui.select = require("snacks").picker.select
-    end,
     opts = {
       dashboard = {
         width = 80,
-        row = nil, -- center vertically
-        col = nil, -- center horizontally
-        pane_gap = 4, -- gap between panes
+        row = nil,
+        col = nil,
+        pane_gap = 4,
         autokeys = "1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
         on_close = function()
           dbAnim.shouldPlayAnimation = false
