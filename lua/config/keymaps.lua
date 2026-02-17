@@ -81,3 +81,10 @@ vim.keymap.set("n", "<leader>w>", "<cmd>vertical resize +20<CR>", { desc = "Incr
 
 -- Show Pretty Typescript Errors
 vim.keymap.set("n", "<leader>dd", require("nvim-pretty-ts-errors").show_line_diagnostics)
+
+-- Scoped Grep — seeker-style file<->grep toggle within git/buffer scopes
+-- All three open a file picker first, then <C-e> toggles to grep (and back)
+local sg = require("lib.scoped-grep")
+vim.keymap.set("n", "<leader>sB", sg.grep_buffers, { desc = "Scoped grep: open buffers" })
+vim.keymap.set("n", "<leader>sa", sg.grep_git_changed, { desc = "Scoped grep: git changed (vs origin/main)" })
+vim.keymap.set("n", "<leader>sd", sg.grep_diff, { desc = "Scoped grep: diff vs branch/commit" })

@@ -10,7 +10,8 @@ Highly customized LazyVim-based Neovim configuration with extensive UI customiza
 
 ### Configuration Structure
 
-- `init.lua`: Main entry point — Python path, `GrepChangedFilesWithPicker()`, terminal background sync (OSC 11/111)
+- `init.lua`: Main entry point — Python path, terminal background sync (OSC 11/111)
+- `lua/lib/scoped-grep.lua`: Scoped grep module — grep within open buffers, git changed files, or diff vs any branch/commit (uses snacks.picker)
 - `lua/config/options.lua`: **Forces root directory to stay as CWD** (`vim.g.root_spec = { "cwd" }`) — critical, prevents LazyVim from auto-changing directories
 - `lua/config/autocmds.lua`: Auto-save on `BufLeave`/`FocusLost` (only normal modifiable file buffers)
 - `lua/config/keymaps.lua`: Custom keybindings (see below)
@@ -36,12 +37,16 @@ Highly customized LazyVim-based Neovim configuration with extensive UI customiza
 - Uses OSC 111 (reset background) on `UILeave` event
 - Reads `Normal` highlight background color and syncs entire terminal frame to match Neovim theme
 
-**Custom Git-Aware Grep (`<leader>ga`):**
+**Scoped Grep (`lua/lib/scoped-grep.lua`):**
 
-- Finds merge-base with `origin/main` using `git merge-base HEAD origin/main`
-- Runs grep only on changed files since merge-base
-- Uses `vim.ui.select` (overridden by Snacks picker) to present results
-- Result format: `filename:line:match` — clicking navigates to that line
+- Seeker-style `<C-e>` toggle between file picker and grep within scoped file lists (progressive refinement)
+- All scopes start in **file picker** mode showing the scoped files, then `<C-e>` toggles to grep (and back)
+- `grep_buffers()`: Scope = open listed buffers with on-disk files
+- `grep_git_changed()`: Scope = files changed since merge-base with `origin/main`
+- `grep_diff()`: Scope = files changed vs user-selected branch/commit (interactive branch picker)
+- `grep_files(files, title)`: Generic entry point for any custom file list
+- State resets on each invocation — no cross-session leakage
+- Multi-select (Tab) in file picker narrows the scope; otherwise all filtered items carry over
 
 **Performance Monitoring System (`lua/config/performance.lua`):**
 
@@ -86,9 +91,11 @@ nvim --startuptime startup.log  # Detailed startup profiling
 - `<leader>b.`: Open previous buffer in other window/split (creates vsplit if no other window exists) — has a TODO to fix consistency
 - `<leader>f.`: Copy relative file path to clipboard
 
-**Git Workflow:**
+**Scoped Grep (Search group — all support `<C-e>` file/grep toggle):**
 
-- `<leader>ga`: Grep through git changed files (merge-base with origin/main) — defined in `init.lua`
+- `<leader>sB`: Scoped grep open buffers (overrides LazyVim's grep_buffers with toggle-enabled version)
+- `<leader>sa`: Scoped grep git changed files vs origin/main (overrides LazyVim's Autocmds picker)
+- `<leader>sd`: Scoped grep diff vs any branch/commit (overrides LazyVim's Diagnostics picker)
 
 **Diagnostics:**
 
@@ -135,6 +142,8 @@ nvim --startuptime startup.log  # Detailed startup profiling
 - `snacks.picker`: Fullscreen fuzzy finder (uses ripgrep/fd)
   - Custom grep args: `--hidden`, `--follow`, `--multiline`
   - Excludes: `.git`, `node_modules`, `*.lock`
+- `seeker.nvim`: Find-then-grep workflow with `<C-e>` toggle for progressive refinement (`<leader>fa/ff/fg/fw`)
+- `lua/lib/scoped-grep.lua`: Git-aware scoped grep — grep within buffers, changed files, or cross-branch diffs
 
 **TypeScript:**
 
