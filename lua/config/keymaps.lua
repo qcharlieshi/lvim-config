@@ -78,3 +78,6 @@ vim.keymap.set("n", "<leader>w+", "<cmd>resize +20<CR>", { desc = "Increase wind
 vim.keymap.set("n", "<leader>w-", "<cmd>resize -20<CR>", { desc = "Decrease window height", silent = true })
 vim.keymap.set("n", "<leader>w<", "<cmd>vertical resize -20<CR>", { desc = "Decrease window width", silent = true })
 vim.keymap.set("n", "<leader>w>", "<cmd>vertical resize +20<CR>", { desc = "Increase window width", silent = true })
+
+-- Show Pretty Typescript Errors
+vim.keymap.set("n", "<leader>dd", require("nvim-pretty-ts-errors").show_line_diagnostics)
