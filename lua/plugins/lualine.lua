@@ -132,30 +132,42 @@ return {
         },
         lualine_x = {
           Snacks.profiler.status(),
-          -- Performance monitoring
+          -- Performance monitoring (progressively hidden at narrow widths)
           {
             function()
               return " " .. perf.fps_status()
             end,
             color = { fg = colors.cyan },
+            cond = function()
+              return vim.o.columns >= 100 and perf.fps_status() ~= ""
+            end,
           },
           {
             function()
               return "⏱ " .. perf.latency_status()
             end,
             color = perf.get_latency_color,
+            cond = function()
+              return vim.o.columns >= 120
+            end,
           },
           {
             function()
               return "⌨ " .. perf.input_lag_status()
             end,
             color = perf.get_input_lag_color,
+            cond = function()
+              return vim.o.columns >= 140
+            end,
           },
           {
             function()
               return "📂 " .. perf.buffer_load_status()
             end,
             color = perf.get_buffer_load_color,
+            cond = function()
+              return vim.o.columns >= 160
+            end,
           },
         -- stylua: ignore
         {

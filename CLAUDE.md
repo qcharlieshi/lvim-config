@@ -55,7 +55,9 @@ Highly customized LazyVim-based Neovim configuration with extensive UI customiza
 - FPS counter: 30-sample rolling average, 1s cache
 - Event loop latency: measures `vim.schedule` round-trip, 20 samples, 1s interval
 - Input lag: tracks `InsertCharPre` → `TextChanged` delta, 15 samples, 100ms throttle
-- Buffer load time: `BufReadPre` → `BufReadPost` delta, 10 samAll metrics displayed in lualine with color-coded thresholds (green/yellow/red)
+- Buffer load time: `BufReadPre` → `BufReadPost` delta, 10 samples, cached per buffer
+
+All metrics displayed in lualine with color-coded thresholds (green/yellow/red). Metrics progressively hide at narrow widths: buffer load drops at <160 cols, input lag at <140, latency at <120, FPS at <100.
 
 **LSP — tsgo (experimental):**
 
