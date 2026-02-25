@@ -1,5 +1,10 @@
 -- bootstrap lazy.nvim, LazyVim and your plugins
 require("config.lazy")
+
+-- macOS 26+: auto re-sign native libs after plugin/treesitter updates
+if vim.fn.has("mac") == 1 then
+  require("config.codesign")
+end
 vim.g.python3_host_prog = "/Library/Frameworks/Python.framework/Versions/3.12/bin/python3"
 
 -- use the existing buffers/tabs if avaliable

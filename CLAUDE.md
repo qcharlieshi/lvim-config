@@ -10,7 +10,9 @@ Highly customized LazyVim-based Neovim configuration with extensive UI customiza
 
 ### Configuration Structure
 
-- `init.lua`: Main entry point — Python path, terminal background sync (OSC 11/111)
+- `init.lua`: Main entry point — Python path, terminal background sync (OSC 11/111), macOS codesign loader
+- `lua/config/codesign.lua`: Auto re-signs native `.so`/`.dylib` libs after plugin updates (macOS 26+ requirement)
+- `scripts/sign-native-libs.sh`: Shell script to strip `com.apple.provenance` and ad-hoc sign treesitter parsers + blink.cmp fuzzy lib
 - `lua/lib/scoped-grep.lua`: Scoped grep module — grep within open buffers, git changed files, or diff vs any branch/commit (uses snacks.picker)
 - `lua/config/options.lua`: **Forces root directory to stay as CWD** (`vim.g.root_spec = { "cwd" }`) — critical, prevents LazyVim from auto-changing directories
 - `lua/config/autocmds.lua`: Auto-save on `BufLeave`/`FocusLost` (only normal modifiable file buffers)
@@ -53,8 +55,7 @@ Highly customized LazyVim-based Neovim configuration with extensive UI customiza
 - FPS counter: 30-sample rolling average, 1s cache
 - Event loop latency: measures `vim.schedule` round-trip, 20 samples, 1s interval
 - Input lag: tracks `InsertCharPre` → `TextChanged` delta, 15 samples, 100ms throttle
-- Buffer load time: `BufReadPre` → `BufReadPost` delta, 10 samples
-- All metrics displayed in lualine with color-coded thresholds (green/yellow/red)
+- Buffer load time: `BufReadPre` → `BufReadPost` delta, 10 samAll metrics displayed in lualine with color-coded thresholds (green/yellow/red)
 
 **LSP — tsgo (experimental):**
 
@@ -68,7 +69,7 @@ Highly customized LazyVim-based Neovim configuration with extensive UI customiza
 
 ## Development Commands
 
-### Formatting
+### FormattingUDE.md#L55-59
 
 ```bash
 stylua . --config-path=stylua.toml  # 2-space indent, 120 char width
@@ -158,3 +159,4 @@ nvim --startuptime startup.log  # Detailed startup profiling
 - **Weather displays fallback immediately** — real data updates asynchronously without blocking startup
 - **Deprecated plugins (8 files)** are kept for reference but should not be activated or modified
 - **Performance metrics in statusline** may show 0 until enough samples are collected after startup
+- **macOS 26+ native lib signing** — macOS adds `com.apple.provenance` to locally-compiled `.so` files, then SIGKILL's nvim when dlopen loads them. `lua/config/codesign.lua` auto-re-signs after `:Lazy update`/`:TSUpdate`. Run `:SignNativeLibs` manually if needed, or `scripts/sign-native-libs.sh` from the shell. **After upgrading nvim itself**, re-apply the entitlement: `codesign -fs - --entitlements /tmp/nvim-entitlements.plist /Applications/nvim-macos-arm64/bin/nvim`
