@@ -22,11 +22,12 @@ if [ -d "$PARSER_DIR" ]; then
   sign_dir "$PARSER_DIR" "*.so"
 fi
 
-# Blink.cmp fuzzy lib
+# Blink.cmp fuzzy lib — pre-built GitHub release binaries don't have com.apple.provenance,
+# so codesign -fs - is NOT needed (and would change the checksum, breaking blink.cmp's verification).
+# Only strip provenance in case the lib was locally compiled.
 if [ -f "$BLINK_LIB" ]; then
-  xattr -cr "$(dirname "$BLINK_LIB")"
-  codesign -fs - "$BLINK_LIB"
-  echo "Signed blink.cmp fuzzy lib"
+  xattr -dr com.apple.provenance "$(dirname "$BLINK_LIB")" 2>/dev/null || true
+  echo "Cleared provenance from blink.cmp fuzzy lib (no re-sign — preserves checksum)"
 fi
 
 echo "Done."
