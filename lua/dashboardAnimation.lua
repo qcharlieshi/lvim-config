@@ -244,14 +244,13 @@ M.ascii = function(counting, callback)
       end
 
       if start_line then
-        -- Figure out pane 1 centering from the existing buffer line
-        -- The buffer line is: [left_margin][centered_content][right_pad][pane2...]
-        -- We extract the left margin (all ASCII spaces before first non-space)
-        local first_buf_line = buf_lines[start_line + 1] or ""
-        local left_margin = #(first_buf_line:match("^(%s*)") or "")
-
-        -- Pane width from snacks config (matches lua/plugins/snacks.lua)
+        -- Calculate window margin using same formula as snacks (dashboard.lua:612)
+        local win = vim.api.nvim_get_current_win()
+        local win_width = vim.api.nvim_win_get_width(win)
         local pane_width = 68
+        local pane_gap = 6
+        local num_panes = 2
+        local col = math.floor((win_width - (pane_width * num_panes + pane_gap * (num_panes - 1))) / 2)
 
         vim.api.nvim_buf_clear_namespace(buf, M.anim_ns, start_line, start_line + #new_lines)
 
@@ -260,12 +259,10 @@ M.ascii = function(counting, callback)
           if row < vim.api.nvim_buf_line_count(buf) then
             local display_w = vim.fn.strdisplaywidth(frame_line)
             local center_pad = math.floor((pane_width - display_w) / 2)
-            local padded = string.rep(" ", center_pad) .. frame_line
-            -- Pad right to cover full pane width (clears previous frame remnants)
             local right_pad = pane_width - display_w - center_pad
-            padded = padded .. string.rep(" ", right_pad)
+            local padded = string.rep(" ", center_pad) .. frame_line .. string.rep(" ", right_pad)
 
-            vim.api.nvim_buf_set_extmark(buf, M.anim_ns, row, left_margin, {
+            vim.api.nvim_buf_set_extmark(buf, M.anim_ns, row, col, {
               virt_text = { { padded, "SnacksDashboardHeader" } },
               virt_text_pos = "overlay",
             })
