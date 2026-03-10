@@ -207,19 +207,72 @@ M.frames = {
 }
 
 M.asciiImg = M.frames[1]
+M.anim_ns = vim.api.nvim_create_namespace("dashboard_anim")
 
 M.ascii = function(counting, callback)
   if not M.shouldPlayAnimation then
     return
   end
 
-  -- local frameCount = #frames < math.floor(counting) and frames[#frames] or frames[math.floor(counting)]
   M.asciiImg = #M.frames < math.floor(counting) and M.frames[#M.frames] or M.frames[math.floor(counting)]
 
   -- Only update dashboard if the frame actually changed
+  -- Use extmark overlays instead of buffer writes to avoid:
+  --   1. Re-rendering terminal sections (flicker)
+  --   2. Destroying pane 2 content (same buffer lines)
+  --   3. Losing centering (snacks pads pane 1 lines)
   if M.asciiImg ~= M.lastRenderedFrame then
     M.lastRenderedFrame = M.asciiImg
-    Snacks.dashboard.update()
+    local buf = vim.api.nvim_get_current_buf()
+    local ok, ft = pcall(vim.api.nvim_get_option_value, "filetype", { buf = buf })
+    if ok and ft == "snacks_dashboard" then
+      local buf_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+      local new_lines = vim.split(M.asciiImg, "\n")
+
+      -- Trim trailing empty lines from frame
+      while #new_lines > 0 and new_lines[#new_lines]:match("^%s*$") do
+        table.remove(new_lines)
+      end
+
+      -- Find the header region: first braille line
+      local start_line = nil
+      for i, line in ipairs(buf_lines) do
+        if line:find("[⠀-⣿]") then
+          start_line = i - 1 -- 0-indexed
+          break
+        end
+      end
+
+      if start_line then
+        -- Figure out pane 1 centering from the existing buffer line
+        -- The buffer line is: [left_margin][centered_content][right_pad][pane2...]
+        -- We extract the left margin (all ASCII spaces before first non-space)
+        local first_buf_line = buf_lines[start_line + 1] or ""
+        local left_margin = #(first_buf_line:match("^(%s*)") or "")
+
+        -- Pane width from snacks config (matches lua/plugins/snacks.lua)
+        local pane_width = 68
+
+        vim.api.nvim_buf_clear_namespace(buf, M.anim_ns, start_line, start_line + #new_lines)
+
+        for i, frame_line in ipairs(new_lines) do
+          local row = start_line + i - 1
+          if row < vim.api.nvim_buf_line_count(buf) then
+            local display_w = vim.fn.strdisplaywidth(frame_line)
+            local center_pad = math.floor((pane_width - display_w) / 2)
+            local padded = string.rep(" ", center_pad) .. frame_line
+            -- Pad right to cover full pane width (clears previous frame remnants)
+            local right_pad = pane_width - display_w - center_pad
+            padded = padded .. string.rep(" ", right_pad)
+
+            vim.api.nvim_buf_set_extmark(buf, M.anim_ns, row, left_margin, {
+              virt_text = { { padded, "SnacksDashboardHeader" } },
+              virt_text_pos = "overlay",
+            })
+          end
+        end
+      end
+    end
   end
 
   if counting >= #M.frames + 1 then

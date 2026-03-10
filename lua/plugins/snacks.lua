@@ -8,6 +8,9 @@ local picker_state = { hidden = false, ignored = false }
 local weather_text = table.concat(weather.get_weather_section(), "\n")
 local weather_fetch_started = false
 
+-- ── Git terminal section helper ──
+local in_git = vim.fn.system("git rev-parse --is-inside-work-tree 2>/dev/null"):find("true") ~= nil
+
 -- Helper to disable folding in dashboard
 local function disable_dashboard_folding(bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
@@ -141,10 +144,10 @@ return {
     end,
     opts = {
       dashboard = {
-        width = 80,
+        width = 68,
         row = nil,
         col = nil,
-        pane_gap = 4,
+        pane_gap = 6,
         autokeys = "1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
         on_close = function()
           dbAnim.shouldPlayAnimation = false
@@ -156,6 +159,7 @@ return {
           header = [[]],
         },
         sections = {
+          -- ── Left Pane (1) ──
           {
             section = "header",
             padding = 1,
@@ -163,14 +167,77 @@ return {
               return { header = dbAnim.asciiImg }
             end,
           },
+          { section = "keys", gap = 1, padding = 1 },
+          { section = "startup", padding = 1 },
+
+          -- ── Right Pane (2) ──
           {
-            padding = 2,
+            pane = 2,
+            padding = 1,
             function()
               return { header = weather_text }
             end,
           },
-          { section = "keys", gap = 1, padding = 1 },
-          { section = "startup", padding = 1 },
+          {
+            pane = 2,
+            icon = " ",
+            title = "Branch / Tag",
+            section = "terminal",
+            cmd = "printf ' %s\\n %s' \"$(git branch --show-current)\" \"$(git describe --tags --abbrev=0 2>/dev/null || echo 'no tag')\"",
+            height = 3,
+            padding = 1,
+            ttl = 5 * 60,
+            indent = 3,
+            enabled = in_git,
+          },
+          {
+            pane = 2,
+            icon = " ",
+            title = "Git Status",
+            section = "terminal",
+            cmd = "git status --short --branch --renames || echo ' clean'",
+            height = 8,
+            padding = 1,
+            ttl = 5 * 60,
+            indent = 3,
+            enabled = in_git,
+          },
+          {
+            pane = 2,
+            icon = " ",
+            title = "Open PRs",
+            section = "terminal",
+            cmd = "gh pr list --limit 5 --author @me 2>/dev/null || echo ' none'",
+            height = 7,
+            padding = 1,
+            ttl = 5 * 60,
+            indent = 3,
+            enabled = in_git,
+          },
+          {
+            pane = 2,
+            icon = " ",
+            title = "Git Log",
+            section = "terminal",
+            cmd = "git log --oneline --graph --decorate --color=always -8",
+            height = 10,
+            padding = 1,
+            ttl = 5 * 60,
+            indent = 3,
+            enabled = in_git,
+          },
+          {
+            pane = 2,
+            icon = " ",
+            title = "Recent Branches",
+            section = "terminal",
+            cmd = "git branch --sort=-committerdate --format='  %(refname:short)  %(committerdate:relative)' --color=always | head -5",
+            height = 6,
+            padding = 1,
+            ttl = 5 * 60,
+            indent = 3,
+            enabled = in_git,
+          },
         },
         keys = {
           {
