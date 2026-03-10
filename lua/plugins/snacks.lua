@@ -1,6 +1,9 @@
 local dbAnim = require("dashboardAnimation")
 local weather = require("weather")
 
+-- Persistent picker toggle state (survives picker close/reopen within session)
+local picker_state = { hidden = false, ignored = false }
+
 -- Start with fallback weather (instant, no blocking)
 local weather_text = table.concat(weather.get_weather_section(), "\n")
 local weather_fetch_started = false
@@ -111,6 +114,30 @@ return {
       vim.defer_fn(function()
         dbAnim.theAnimation(dbAnim.theAnimation)
       end, 100)
+
+      -- Wrap Snacks.picker.pick to inject persisted hidden/ignored state
+      vim.api.nvim_create_autocmd("User", {
+        pattern = "VeryLazy",
+        once = true,
+        callback = function()
+          vim.schedule(function()
+            if not (Snacks and Snacks.picker) then
+              return
+            end
+            local orig_pick = Snacks.picker.pick
+            Snacks.picker.pick = function(source, opts)
+              opts = opts or {}
+              if opts.hidden == nil then
+                opts.hidden = picker_state.hidden
+              end
+              if opts.ignored == nil then
+                opts.ignored = picker_state.ignored
+              end
+              return orig_pick(source, opts)
+            end
+          end)
+        end,
+      })
     end,
     opts = {
       dashboard = {
@@ -188,6 +215,24 @@ return {
       picker = {
         layout = { -- the layout config
           fullscreen = true,
+        },
+        actions = {
+          toggle_hidden_persist = function(picker)
+            picker_state.hidden = not picker_state.hidden
+            return picker:action("toggle_hidden")
+          end,
+          toggle_ignored_persist = function(picker)
+            picker_state.ignored = not picker_state.ignored
+            return picker:action("toggle_ignored")
+          end,
+        },
+        win = {
+          input = {
+            keys = {
+              ["<a-h>"] = { "toggle_hidden_persist", desc = "Toggle Hidden" },
+              ["<a-i>"] = { "toggle_ignored_persist", desc = "Toggle Ignored" },
+            },
+          },
         },
         sources = {
           explorer = {
