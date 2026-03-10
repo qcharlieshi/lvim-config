@@ -229,7 +229,10 @@ M.ascii = function(counting, callback)
       local buf_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
       local new_lines = vim.split(M.asciiImg, "\n")
 
-      -- Trim trailing empty lines from frame
+      -- Trim leading and trailing empty lines from frame
+      while #new_lines > 0 and new_lines[1]:match("^%s*$") do
+        table.remove(new_lines, 1)
+      end
       while #new_lines > 0 and new_lines[#new_lines]:match("^%s*$") do
         table.remove(new_lines)
       end
