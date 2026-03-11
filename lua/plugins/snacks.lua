@@ -129,6 +129,17 @@ return {
             end
             local orig_pick = Snacks.picker.pick
             Snacks.picker.pick = function(source, opts)
+              -- When called with a single table arg (e.g. vim.ui.select),
+              -- source IS the opts table — don't split into two args
+              if type(source) == "table" then
+                if source.hidden == nil then
+                  source.hidden = picker_state.hidden
+                end
+                if source.ignored == nil then
+                  source.ignored = picker_state.ignored
+                end
+                return orig_pick(source)
+              end
               opts = opts or {}
               if opts.hidden == nil then
                 opts.hidden = picker_state.hidden
