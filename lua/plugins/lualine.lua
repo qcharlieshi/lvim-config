@@ -1,6 +1,27 @@
 local colors = require("config.colors").colors
 local perf = require("config.performance")
 
+-- Cached git branch to avoid shelling out on every statusline redraw
+local git_branch_cache = { branch = "", cwd = "" }
+
+local function get_git_branch()
+  local cwd = vim.fn.getcwd()
+  if git_branch_cache.cwd == cwd and git_branch_cache.branch ~= "" then
+    return git_branch_cache.branch
+  end
+  local branch = vim.fn.system("git branch --show-current 2>/dev/null"):gsub("\n", "")
+  git_branch_cache.branch = branch
+  git_branch_cache.cwd = cwd
+  return branch
+end
+
+-- Invalidate cache on events that could change the branch
+vim.api.nvim_create_autocmd({ "FocusGained", "DirChanged", "BufEnter" }, {
+  callback = function()
+    git_branch_cache.branch = ""
+  end,
+})
+
 return {
   "nvim-lualine/lualine.nvim",
   dependencies = { "nvim-tree/nvim-web-devicons", "SmiteshP/nvim-navic" },
@@ -41,8 +62,8 @@ return {
         lualine_a = {
           {
             function()
-              local branch = vim.b.gitsigns_head
-              if not branch or branch == "" then
+              local branch = get_git_branch()
+              if branch == "" then
                 return ""
               end
 
