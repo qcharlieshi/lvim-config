@@ -42,8 +42,7 @@ return {
           {
             function()
               local branch = vim.b.gitsigns_head
-                or vim.fn.system("git branch --show-current 2>/dev/null"):gsub("\n", "")
-              if branch == "" then
+              if not branch or branch == "" then
                 return ""
               end
 

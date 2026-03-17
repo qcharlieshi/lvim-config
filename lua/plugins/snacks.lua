@@ -322,8 +322,8 @@ return {
           },
         },
         debug = {
-          grep = true,
-          files = true,
+          grep = false,
+          files = false,
         },
         grep = {
           debug = true,
