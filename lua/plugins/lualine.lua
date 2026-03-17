@@ -16,7 +16,7 @@ local function get_git_branch()
 end
 
 -- Invalidate cache on events that could change the branch
-vim.api.nvim_create_autocmd({ "FocusGained", "DirChanged", "BufEnter" }, {
+vim.api.nvim_create_autocmd({ "FocusGained", "DirChanged" }, {
   callback = function()
     git_branch_cache.branch = ""
   end,
