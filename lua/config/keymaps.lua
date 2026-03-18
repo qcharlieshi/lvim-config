@@ -82,6 +82,24 @@ vim.keymap.set("n", "<leader>w>", "<cmd>vertical resize +20<CR>", { desc = "Incr
 -- Show Pretty Typescript Errors
 vim.keymap.set("n", "<leader>dd", require("nvim-pretty-ts-errors").show_line_diagnostics)
 
+-- Smart save: prompt for filename if buffer is unnamed, otherwise just save
+vim.keymap.set({ "n", "i" }, "<C-s>", function()
+  local bt = vim.bo.buftype
+  if bt ~= "" then return end -- skip terminal, nofile, prompt, dashboard, etc.
+  if vim.bo.readonly then return end
+
+  if vim.api.nvim_buf_get_name(0) == "" then
+    vim.ui.input({ prompt = "Save as: ", completion = "file" }, function(path)
+      if path and path ~= "" then
+        vim.cmd("file " .. vim.fn.fnameescape(path))
+        vim.cmd("write")
+      end
+    end)
+  else
+    vim.cmd("write")
+  end
+end, { desc = "Save (prompt if unnamed)", silent = true })
+
 -- Scoped Grep — seeker-style file<->grep toggle within git/buffer scopes
 -- All three open a file picker first, then <C-e> toggles to grep (and back)
 local sg = require("lib.scoped-grep")
