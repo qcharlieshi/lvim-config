@@ -252,8 +252,8 @@ M.ascii = function(counting, callback)
         local win_width = vim.api.nvim_win_get_width(win)
         local pane_width = 68
         local pane_gap = 6
-        local num_panes = 2
-        local col = math.floor((win_width - (pane_width * num_panes + pane_gap * (num_panes - 1))) / 2)
+        local num_panes = win_width >= 142 and 2 or 1
+        local col = math.max(0, math.floor((win_width - (pane_width * num_panes + pane_gap * (num_panes - 1))) / 2))
 
         vim.api.nvim_buf_clear_namespace(buf, M.anim_ns, start_line, start_line + #new_lines)
 
