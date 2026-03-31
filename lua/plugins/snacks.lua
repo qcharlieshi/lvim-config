@@ -10,6 +10,7 @@ local weather_fetch_started = false
 
 -- ── Git terminal section helper ──
 local in_git = vim.fn.system("git rev-parse --is-inside-work-tree 2>/dev/null"):find("true") ~= nil
+local wide_enough = vim.o.columns >= 142 -- 68*2 + 6 = two-pane minimum
 
 -- Helper to disable folding in dashboard
 local function disable_dashboard_folding(bufnr)
@@ -124,6 +125,23 @@ return {
         once = true,
         callback = function()
           vim.schedule(function()
+            -- Patch explorer diagnostics to guard against wiped buffers (hbac compat)
+            local diag_ok, explorer_diag = pcall(require, "snacks.explorer.diagnostics")
+            if diag_ok and explorer_diag then
+              local orig_update = explorer_diag.update
+              explorer_diag.update = function(cwd)
+                -- Purge diagnostics referencing invalid buffers before the original runs
+                local ns_list = vim.diagnostic.get()
+                for i = #ns_list, 1, -1 do
+                  local d = ns_list[i]
+                  if d.bufnr and not vim.api.nvim_buf_is_valid(d.bufnr) then
+                    pcall(vim.diagnostic.reset, nil, d.bufnr)
+                  end
+                end
+                return orig_update(cwd)
+              end
+            end
+
             if not (Snacks and Snacks.picker) then
               return
             end
@@ -185,6 +203,7 @@ return {
           {
             pane = 2,
             padding = 1,
+            enabled = wide_enough,
             function()
               return { header = weather_text }
             end,
@@ -199,7 +218,7 @@ return {
             padding = 1,
             ttl = 5 * 60,
             indent = 3,
-            enabled = in_git,
+            enabled = in_git and wide_enough,
           },
           {
             pane = 2,
@@ -211,7 +230,7 @@ return {
             padding = 1,
             ttl = 5 * 60,
             indent = 3,
-            enabled = in_git,
+            enabled = in_git and wide_enough,
           },
           {
             pane = 2,
@@ -223,7 +242,7 @@ return {
             padding = 1,
             ttl = 5 * 60,
             indent = 3,
-            enabled = in_git,
+            enabled = in_git and wide_enough,
           },
           {
             pane = 2,
@@ -235,7 +254,7 @@ return {
             padding = 1,
             ttl = 5 * 60,
             indent = 3,
-            enabled = in_git,
+            enabled = in_git and wide_enough,
           },
           {
             pane = 2,
@@ -247,7 +266,7 @@ return {
             padding = 1,
             ttl = 5 * 60,
             indent = 3,
-            enabled = in_git,
+            enabled = in_git and wide_enough,
           },
         },
         keys = {
