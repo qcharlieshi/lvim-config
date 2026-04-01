@@ -20,9 +20,10 @@ Highly customized LazyVim-based Neovim configuration with extensive UI customiza
 - `lua/config/performance.lua`: Real-time performance monitoring (FPS, event loop latency, input lag, buffer load times) — integrated into lualine statusline with color-coded thresholds (green <20ms / yellow <50ms / red >50ms)
 - `lua/config/colors.lua`: Shared color palette used by lualine theming
 - `lua/config/lazy.lua`: Plugin manager setup — colorscheme fallback chain: gruvdark → tokyonight → habamax → catppuccin
-- `lua/plugins/`: Individual plugin configs (~30 active, 8 deprecated with `.deprecated` suffix — **do not modify deprecated files**)
+- `lua/plugins/`: Individual plugin configs (~30 active, 9 deprecated with `.deprecated` suffix — **do not modify deprecated files**)
 - `lua/dashboardAnimation.lua`: Triforce animation frames using Braille characters with state management
 - `lua/weather.lua`: wttr.in integration with 5-minute cache and async fetch
+- `scripts/nvim_bridge.py`: Python bridge for Claude Code agents to control Neovim via socket (open files, harpoon, marks, trailblazer, scoped grep, state queries)
 
 ### Critical Implementation Details
 
@@ -64,6 +65,20 @@ All metrics displayed in lualine with color-coded thresholds (green/yellow/red).
 - Uses `tsgo --lsp --stdio` as TypeScript/JavaScript LSP (replaces vtsls, which is explicitly disabled)
 - **This is a preview build** — commit note says "will need to be updated to final version"
 - vtsls, ruff, and pyright are all disabled
+
+**Neovim Bridge (`scripts/nvim_bridge.py`):**
+
+- Python CLI that connects to a running Neovim via socket (pynvim)
+- Socket discovery: `$NVIM_LISTEN_ADDRESS` → `/tmp/nvim-server.pipe` → `$NVIM` → sibling tmux pane auto-detection
+- Commands: `open`, `open_many`, `harpoon_add/list`, `mark`, `trail`, `kulala/kulala_gen`, `scoped_grep`, `buffers`, `cursor`, `state`, `exec`, `cmd`
+- Used by the Claude Code `/nvim-bridge` skill to stage files, drop marks, and query editor state from agent context
+
+**Sidekick (`lua/plugins/sidekick.lua`):**
+
+- `sidekick.nvim` integration for Claude Code as an in-editor AI assistant
+- Uses tmux mux backend with vertical split (50% width)
+- Auto-creates/attaches to a Claude session without picker prompt
+- Supports sending context: current buffer (`{this}`), file (`{file}`), all buffers (`{buffers}`), visual selection (`{selection}`)
 
 **Buffer Reuse Strategy:**
 
