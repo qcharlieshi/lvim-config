@@ -1,7 +1,5 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
 ## Overview
 
 Highly customized LazyVim-based Neovim configuration with extensive UI customizations, a performance monitoring system, custom keybindings, and specialized plugins for development workflows.

@@ -1,5 +1,7 @@
--- Performance monitoring for Neovim
+-- Performance monitoring for Neovim (disabled by default, toggle with :PerfToggle)
 local M = {}
+
+M.enabled = false
 
 -- FPS Counter (Update Frequency Tracking)
 local fps_data = {
@@ -12,6 +14,9 @@ local fps_data = {
 }
 
 function M.get_fps()
+  if not M.enabled then
+    return 0
+  end
   local now = vim.loop.hrtime()
   local now_seconds = now / 1e9
 
@@ -98,6 +103,9 @@ local function measure_latency()
 end
 
 function M.get_latency()
+  if not M.enabled then
+    return 0
+  end
   local now = vim.loop.hrtime() / 1e9
   if now - latency_data.last_check > latency_data.check_interval then
     measure_latency()
@@ -117,7 +125,28 @@ local status_cache = {
   update_interval = 1.0, -- Update status strings every 1 second
 }
 
+function M.toggle()
+  M.enabled = not M.enabled
+  if M.enabled then
+    vim.notify("Perf monitoring ON", vim.log.levels.INFO)
+  else
+    -- Clear cached status so lualine components hide immediately
+    status_cache.fps = ""
+    status_cache.latency = ""
+    status_cache.input_lag = ""
+    status_cache.buffer_load = ""
+    vim.notify("Perf monitoring OFF", vim.log.levels.INFO)
+  end
+end
+
+vim.api.nvim_create_user_command("PerfToggle", function()
+  M.toggle()
+end, { desc = "Toggle performance monitoring in statusline" })
+
 local function update_status_cache()
+  if not M.enabled then
+    return
+  end
   local now = vim.loop.hrtime() / 1e9
   if now - status_cache.last_update < status_cache.update_interval then
     return
@@ -214,10 +243,16 @@ end
 
 -- Track input lag by measuring time from keypress to text change only
 local function track_input()
+  if not M.enabled then
+    return
+  end
   input_lag_data.last_input_time = vim.loop.hrtime()
 end
 
 local function measure_input_lag()
+  if not M.enabled then
+    return
+  end
   -- Throttle measurements to reduce overhead
   local now = vim.loop.hrtime()
   local now_seconds = now / 1e9
@@ -270,11 +305,17 @@ end
 
 -- Track buffer load times
 local function start_buffer_load()
+  if not M.enabled then
+    return
+  end
   local bufnr = vim.api.nvim_get_current_buf()
   buffer_load_data.load_start_time[bufnr] = vim.loop.hrtime()
 end
 
 local function end_buffer_load()
+  if not M.enabled then
+    return
+  end
   local bufnr = vim.api.nvim_get_current_buf()
   local start_time = buffer_load_data.load_start_time[bufnr]
 

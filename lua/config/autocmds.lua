@@ -10,3 +10,13 @@ vim.api.nvim_create_autocmd({ "BufLeave", "FocusLost" }, {
     end
   end,
 })
+
+-- Open PDFs in fancy-cat via tmux split
+vim.api.nvim_create_autocmd("BufReadCmd", {
+  pattern = "*.pdf",
+  callback = function(ev)
+    local path = vim.fn.expand("<afile>:p")
+    vim.fn.system(string.format("tmux split-window -h 'fancy-cat %s'", vim.fn.shellescape(path)))
+    vim.api.nvim_buf_delete(ev.buf, { force = true })
+  end,
+})

@@ -1,26 +1,22 @@
 local colors = require("config.colors").colors
 local perf = require("config.performance")
 
--- Cached git branch to avoid shelling out on every statusline redraw
-local git_branch_cache = { branch = "", cwd = "" }
+-- Cached git branch with TTL to avoid shelling out on every statusline redraw
+local git_branch_cache = { branch = "", cwd = "", last_fetch = 0 }
+local GIT_BRANCH_TTL_MS = 2000 -- only re-fetch every 2 seconds
 
 local function get_git_branch()
   local cwd = vim.fn.getcwd()
-  if git_branch_cache.cwd == cwd and git_branch_cache.branch ~= "" then
+  local now = vim.loop.now()
+  if git_branch_cache.cwd == cwd and (now - git_branch_cache.last_fetch) < GIT_BRANCH_TTL_MS then
     return git_branch_cache.branch
   end
   local branch = vim.fn.system("git branch --show-current 2>/dev/null"):gsub("\n", "")
   git_branch_cache.branch = branch
   git_branch_cache.cwd = cwd
+  git_branch_cache.last_fetch = now
   return branch
 end
-
--- Invalidate cache on events that could change the branch
-vim.api.nvim_create_autocmd({ "FocusGained", "DirChanged" }, {
-  callback = function()
-    git_branch_cache.branch = ""
-  end,
-})
 
 return {
   "nvim-lualine/lualine.nvim",
@@ -159,7 +155,7 @@ return {
             end,
             color = { fg = colors.cyan },
             cond = function()
-              return vim.o.columns >= 100 and perf.fps_status() ~= ""
+              return perf.enabled and vim.o.columns >= 100 and perf.fps_status() ~= ""
             end,
           },
           {
@@ -168,7 +164,7 @@ return {
             end,
             color = perf.get_latency_color,
             cond = function()
-              return vim.o.columns >= 120
+              return perf.enabled and vim.o.columns >= 120
             end,
           },
           {
@@ -177,7 +173,7 @@ return {
             end,
             color = perf.get_input_lag_color,
             cond = function()
-              return vim.o.columns >= 140
+              return perf.enabled and vim.o.columns >= 140
             end,
           },
           {
@@ -186,7 +182,7 @@ return {
             end,
             color = perf.get_buffer_load_color,
             cond = function()
-              return vim.o.columns >= 160
+              return perf.enabled and vim.o.columns >= 160
             end,
           },
         -- stylua: ignore

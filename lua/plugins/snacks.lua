@@ -9,7 +9,10 @@ local weather_text = table.concat(weather.get_weather_section(), "\n")
 local weather_fetch_started = false
 
 -- ── Git terminal section helper ──
-local in_git = vim.fn.system("git rev-parse --is-inside-work-tree 2>/dev/null"):find("true") ~= nil
+-- Synchronous but with tight timeout — rev-parse is local-only (~5ms), no network.
+-- The original vim.fn.system() had no timeout; this caps at 50ms to avoid hangs.
+local git_result = vim.system({ "git", "rev-parse", "--is-inside-work-tree" }, { text = true }):wait(50)
+local in_git = git_result and git_result.code == 0 and (git_result.stdout or ""):find("true") ~= nil
 local wide_enough = vim.o.columns >= 142 -- 68*2 + 6 = two-pane minimum
 
 -- Helper to disable folding in dashboard

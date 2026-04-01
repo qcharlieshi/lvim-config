@@ -59,31 +59,23 @@ return {
     vim.o.foldlevelstart = 99
     vim.o.foldenable = true
 
-    -- Auto preview fold after 2 seconds
-    local timer = vim.loop.new_timer()
-    local last_fold_time = 0
-
-    vim.api.nvim_create_autocmd("CursorMoved", {
-      callback = function()
-        if timer then
-          timer:stop()
-        end
-        last_fold_time = vim.loop.now()
-        timer:start(
-          2000,
-          0,
-          vim.schedule_wrap(function()
-            if vim.loop.now() - last_fold_time >= 2000 then
-              local line = vim.fn.line(".")
-              local fold_start = vim.fn.foldclosed(line)
-              if fold_start ~= -1 then
-                require("ufo").peekFoldedLinesUnderCursor()
-              end
-            end
-          end)
-        )
-      end,
-    })
+    -- Peek fold preview on zj/zk (fold navigation) instead of every CursorMoved
+    local function peek_if_folded()
+      local line = vim.fn.line(".")
+      if vim.fn.foldclosed(line) ~= -1 then
+        vim.schedule(function()
+          require("ufo").peekFoldedLinesUnderCursor()
+        end)
+      end
+    end
+    vim.keymap.set("n", "zj", function()
+      vim.cmd("normal! zj")
+      peek_if_folded()
+    end, { desc = "Next fold + peek" })
+    vim.keymap.set("n", "zk", function()
+      vim.cmd("normal! zk")
+      peek_if_folded()
+    end, { desc = "Prev fold + peek" })
   end,
   config = function(_, opts)
     require("ufo").setup(opts)

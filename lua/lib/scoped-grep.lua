@@ -32,7 +32,9 @@ end
 ---@return table[]
 local function get_picker_items(picker)
   local selected = picker:selected()
-  if selected and #selected > 0 then return selected end
+  if selected and #selected > 0 then
+    return selected
+  end
   return picker:items() or {}
 end
 
@@ -81,11 +83,15 @@ local function create_file_picker()
     actions = {
       scoped_toggle = function(picker)
         local items = get_picker_items(picker)
-        if #items == 0 then return end
+        if #items == 0 then
+          return
+        end
         state.file_list = extract_file_paths(items)
         state.mode = "grep"
         picker:close()
-        vim.schedule(function() create_grep_picker() end)
+        vim.schedule(function()
+          create_grep_picker()
+        end)
       end,
     },
     win = {
@@ -107,7 +113,9 @@ function create_grep_picker()
     actions = {
       scoped_toggle = function(picker)
         local items = get_picker_items(picker)
-        if #items == 0 then return end
+        if #items == 0 then
+          return
+        end
         state.grep_files = extract_file_paths(items)
         state.mode = "file"
         picker:close()
@@ -167,7 +175,9 @@ local function git_changed_files(base, head)
     vim.notify("git diff failed: " .. (output[1] or "unknown error"), vim.log.levels.ERROR)
     return {}
   end
-  return vim.tbl_filter(function(f) return f ~= "" end, output)
+  return vim.tbl_filter(function(f)
+    return f ~= ""
+  end, output)
 end
 
 local function get_merge_base(target)
@@ -181,12 +191,16 @@ end
 
 local function get_git_branches()
   local output = vim.fn.systemlist("git branch --format='%(refname:short)' 2>/dev/null")
-  if vim.v.shell_error ~= 0 then return {} end
+  if vim.v.shell_error ~= 0 then
+    return {}
+  end
   local remotes = vim.fn.systemlist("git branch -r --format='%(refname:short)' 2>/dev/null")
   if vim.v.shell_error == 0 then
     vim.list_extend(output, remotes)
   end
-  return vim.tbl_filter(function(b) return b ~= "" end, output)
+  return vim.tbl_filter(function(b)
+    return b ~= ""
+  end, output)
 end
 
 -- ---------------------------------------------------------------------------
@@ -208,7 +222,9 @@ end
 --- Grep git changed files vs origin/main with file<->grep toggle
 function M.grep_git_changed()
   local base = get_merge_base("origin/main")
-  if not base then return end
+  if not base then
+    return
+  end
   local files = git_changed_files(base)
   start_scoped(files, string.format("Changed vs origin/main (%d)", #files))
 end
@@ -219,11 +235,17 @@ function M.grep_diff()
 
   vim.ui.select(branches, {
     prompt = "Compare against (or type a commit):",
-    format_item = function(item) return item end,
+    format_item = function(item)
+      return item
+    end,
   }, function(choice)
-    if not choice or choice == "" then return end
+    if not choice or choice == "" then
+      return
+    end
     local base = get_merge_base(choice)
-    if not base then return end
+    if not base then
+      return
+    end
     local files = git_changed_files(base)
     start_scoped(files, string.format("Diff vs %s (%d)", choice, #files))
   end)
