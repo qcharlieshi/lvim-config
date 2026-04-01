@@ -4,3 +4,6 @@
 
 -- fixes lazyvim changing root dir unexpectedly
 vim.g.root_spec = { "cwd" }
+
+-- disable diagnostics by default (toggle with <leader>ud)
+vim.diagnostic.enable(false)
