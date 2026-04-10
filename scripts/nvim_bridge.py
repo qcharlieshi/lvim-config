@@ -11,8 +11,10 @@ Usage:
 
 Socket discovery order:
     1. $NVIM_LISTEN_ADDRESS
-    2. /tmp/nvim-server.pipe  (user's alias default)
-    3. $NVIM  (when running inside nvim terminal)
+    2. $NVIM  (when running inside nvim terminal)
+    3. Sibling tmux pane nvim (auto-detected)
+    4. /tmp/nvim-server-$TMUX_PANE.pipe  (pane-specific socket)
+    5. /tmp/nvim-server.pipe  (legacy fallback)
 
 Commands:
     open <file> [line]              Open file, optionally jump to line
@@ -104,11 +106,13 @@ def find_sibling_nvim_socket():
 
 
 def connect():
+    tmux_pane = os.environ.get("TMUX_PANE", "default")
     candidates = [
         os.environ.get("NVIM_LISTEN_ADDRESS"),
         os.environ.get("NVIM"),
         find_sibling_nvim_socket(),
-        "/tmp/nvim-server.pipe",
+        f"/tmp/nvim-server-{tmux_pane}.pipe",
+        "/tmp/nvim-server.pipe",  # legacy fallback
     ]
     for sock in candidates:
         if sock and os.path.exists(sock):
@@ -117,7 +121,7 @@ def connect():
             except Exception:
                 continue
     print("ERROR: No running Neovim instance found.", file=sys.stderr)
-    print("Start nvim with: nvim --listen /tmp/nvim-server.pipe", file=sys.stderr)
+    print("Start nvim with: vim (alias adds --listen automatically)", file=sys.stderr)
     sys.exit(1)
 
 
