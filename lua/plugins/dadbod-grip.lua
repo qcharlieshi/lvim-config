@@ -1,0 +1,31 @@
+return {
+  "joryeugene/dadbod-grip.nvim",
+  version = "*",
+  build = function(plugin)
+    os.remove(plugin.dir .. "/lazy.lua") -- plugin's lazy.lua is malformed, breaks lazy.nvim pkg loader
+  end,
+  cmd = {
+    "Grip",
+    "GripStart",
+    "GripHome",
+    "GripConnect",
+    "GripSchema",
+    "GripTables",
+    "GripQuery",
+    "GripSave",
+    "GripLoad",
+    "GripHistory",
+    "GripProfile",
+    "GripExplain",
+    "GripAsk",
+    "GripDiff",
+    "GripCreate",
+    "GripDrop",
+    "GripRename",
+    "GripProperties",
+    "GripExport",
+    "GripAttach",
+    "GripDetach",
+    "GripOpen",
+  },
+}

@@ -16,7 +16,16 @@ vim.api.nvim_create_autocmd("BufReadCmd", {
   pattern = "*.pdf",
   callback = function(ev)
     local path = vim.fn.expand("<afile>:p")
+    -- Set buffer as empty scratch so snacks/picker don't choke on it
+    vim.bo[ev.buf].buftype = "nofile"
+    vim.bo[ev.buf].bufhidden = "wipe"
+    vim.bo[ev.buf].swapfile = false
     vim.fn.system(string.format("tmux split-window -h 'fancy-cat %s'", vim.fn.shellescape(path)))
-    vim.api.nvim_buf_delete(ev.buf, { force = true })
+    -- Defer buffer cleanup so snacks picker can finish gracefully
+    vim.schedule(function()
+      if vim.api.nvim_buf_is_valid(ev.buf) then
+        vim.api.nvim_buf_delete(ev.buf, { force = true })
+      end
+    end)
   end,
 })

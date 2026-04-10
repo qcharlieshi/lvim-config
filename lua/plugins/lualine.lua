@@ -71,31 +71,31 @@ return {
           },
           {
             function()
-              local summary = vim.b.minidiff_summary
-              if not summary or not summary.add or summary.add == 0 then
+              local gs = vim.b.gitsigns_status_dict
+              if not gs or not gs.added or gs.added == 0 then
                 return ""
               end
-              return " " .. icons.git.added .. summary.add
+              return " " .. icons.git.added .. gs.added
             end,
             color = { fg = "#2a6b4d" },
           },
           {
             function()
-              local summary = vim.b.minidiff_summary
-              if not summary or not summary.change or summary.change == 0 then
+              local gs = vim.b.gitsigns_status_dict
+              if not gs or not gs.changed or gs.changed == 0 then
                 return ""
               end
-              return " " .. icons.git.modified .. summary.change
+              return " " .. icons.git.modified .. gs.changed
             end,
             color = { fg = "#8b6914" },
           },
           {
             function()
-              local summary = vim.b.minidiff_summary
-              if not summary or not summary.delete or summary.delete == 0 then
+              local gs = vim.b.gitsigns_status_dict
+              if not gs or not gs.removed or gs.removed == 0 then
                 return ""
               end
-              return " " .. icons.git.removed .. summary.delete
+              return " " .. icons.git.removed .. gs.removed
             end,
             color = { fg = "#8b2635" },
           },
