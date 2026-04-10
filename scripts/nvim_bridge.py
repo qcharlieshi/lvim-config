@@ -23,6 +23,14 @@ Commands:
     trail <file> <line>             Drop a trailblazer mark at file:line
     kulala <file.http>              Open an .http file for kulala
     kulala_gen <outfile> <json>     Generate .http file from JSON spec
+    grip_connect [url]              Connect to database (or open picker)
+    grip_open <table|path> [flags]  Open table/file in Grip grid
+    grip_query [sql]                Open query pad, optionally with SQL
+    grip_tables                     Fuzzy table picker
+    grip_schema                     Toggle schema browser sidebar
+    grip_attach <conn> <alias>      Attach DB for cross-DB federation
+    grip_gen <outfile.md> <json>    Generate SQL notebook from JSON spec
+    grip_home                       Open Grip home screen
     scoped_grep <title> <f1> ...    Launch scoped grep on file list
     buffers                         List open buffers
     cursor                          Get current cursor position
@@ -256,6 +264,122 @@ def cmd_kulala_gen(nvim, args):
     print(f"Generated {outfile} with {len(spec)} request(s)")
 
 
+def cmd_grip_connect(nvim, args):
+    """Connect to a database via dadbod-grip.
+
+    With URL: connects directly.
+    Without: opens connection picker.
+    URL formats: postgresql://user:pass@host:5432/db, sqlite:path.db, duckdb:path.duckdb
+    """
+    if not args:
+        nvim.command("GripConnect")
+        print("Opened connection picker")
+        return
+    url = args[0]
+    nvim.command(f"GripConnect {url}")
+    print(f"Connected to {url}")
+
+
+def cmd_grip_open(nvim, args):
+    """Open a table or file in dadbod-grip grid.
+
+    Accepts table names, file paths (.csv, .parquet, .json, .xlsx), or URLs.
+    Flags: --write (enable edits), --watch[=interval] (auto-refresh).
+    """
+    if not args:
+        print("Usage: grip_open <table_or_path> [--write] [--watch[=interval]]", file=sys.stderr)
+        sys.exit(1)
+    nvim.command(f"Grip {' '.join(args)}")
+    print(f"Opened {args[0]} in Grip grid")
+
+
+def cmd_grip_query(nvim, args):
+    """Open Grip query pad, optionally prepopulated with SQL."""
+    if args:
+        sql = " ".join(args)
+        nvim.command(f"GripQuery {sql}")
+        print("Opened query pad with SQL")
+    else:
+        nvim.command("GripQuery")
+        print("Opened query pad")
+
+
+def cmd_grip_tables(nvim, args):
+    """Open Grip fuzzy table picker."""
+    nvim.command("GripTables")
+    print("Opened table picker")
+
+
+def cmd_grip_schema(nvim, args):
+    """Toggle Grip schema browser sidebar."""
+    nvim.command("GripSchema")
+    print("Toggled schema sidebar")
+
+
+def cmd_grip_attach(nvim, args):
+    """Attach a database for cross-DB federation via DuckDB.
+
+    Format: grip_attach <type>:<connection_details> <alias>
+    Example: grip_attach postgres:dbname=sales host=localhost user=me pg
+    Then query as: SELECT pg.table.col FROM pg.table
+    """
+    if len(args) < 2:
+        print("Usage: grip_attach <connection_string> <alias>", file=sys.stderr)
+        sys.exit(1)
+    conn = args[0]
+    alias = args[1]
+    nvim.command(f"GripAttach {conn} {alias}")
+    print(f"Attached {conn} as '{alias}'")
+
+
+def cmd_grip_gen(nvim, args):
+    """Generate a SQL notebook (.md with sql fences) and open it.
+
+    JSON spec format:
+    [
+      {"name": "Section title", "sql": "SELECT ...", "description": "optional context"},
+      ...
+    ]
+    User executes blocks with <C-CR> in Grip. Load via gn in query pad.
+    """
+    if len(args) < 2:
+        print("Usage: grip_gen <outfile.md> <json_spec>", file=sys.stderr)
+        sys.exit(1)
+    outfile = os.path.abspath(args[0])
+    spec = json.loads(args[1])
+
+    lines = []
+    lines.append("# SQL Notebook")
+    lines.append("")
+    lines.append("> Execute blocks with `<C-CR>`. Load via `gn` in query pad.")
+    lines.append("")
+
+    for i, query in enumerate(spec):
+        name = query.get("name", f"Query {i + 1}")
+        lines.append(f"## {name}")
+        lines.append("")
+        desc = query.get("description")
+        if desc:
+            lines.append(desc)
+            lines.append("")
+        lines.append("```sql")
+        lines.append(query["sql"])
+        lines.append("```")
+        lines.append("")
+
+    with open(outfile, "w") as f:
+        f.write("\n".join(lines))
+
+    nvim.command(f"edit {outfile}")
+    print(f"Generated {outfile} with {len(spec)} queries")
+
+
+def cmd_grip_home(nvim, args):
+    """Open Grip home / welcome screen."""
+    nvim.command("GripHome")
+    print("Opened Grip home")
+
+
 def cmd_scoped_grep(nvim, args):
     """Launch scoped grep picker on a set of files."""
     if len(args) < 2:
@@ -358,6 +482,14 @@ COMMANDS = {
     "trail": cmd_trail,
     "kulala": cmd_kulala,
     "kulala_gen": cmd_kulala_gen,
+    "grip_connect": cmd_grip_connect,
+    "grip_open": cmd_grip_open,
+    "grip_query": cmd_grip_query,
+    "grip_tables": cmd_grip_tables,
+    "grip_schema": cmd_grip_schema,
+    "grip_attach": cmd_grip_attach,
+    "grip_gen": cmd_grip_gen,
+    "grip_home": cmd_grip_home,
     "scoped_grep": cmd_scoped_grep,
     "buffers": cmd_buffers,
     "cursor": cmd_cursor,
