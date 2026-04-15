@@ -7,3 +7,7 @@ vim.g.root_spec = { "cwd" }
 
 -- disable diagnostics by default (toggle with <leader>ud)
 vim.diagnostic.enable(false)
+
+-- Reduce scroll-down stutter under fast key repeat: avoid EOF "wall" where
+-- buffered keypresses can't move the cursor and back up the input queue.
+vim.opt.scrolloff = 1

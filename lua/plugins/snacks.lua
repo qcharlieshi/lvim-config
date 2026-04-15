@@ -125,7 +125,13 @@ return {
       -- Pad line-number width in snacks.statuscolumn so the column doesn't
       -- oscillate when the cursor's absolute line number gains/loses a digit
       -- (which would shift extmark virt_lines, e.g. gitsigns deleted hunks).
-      -- Upstream emits `"%=" .. num .. " "` with no min-width.
+      -- Upstream emits `"%=" .. num .. " "` with no min-width, so the column
+      -- width is driven per-redraw by max(strwidth) across visible rows.
+      --
+      -- Upstream fix (snacks.nvim/lua/snacks/statuscolumn.lua around line 273):
+      --   local w = vim.wo[win].numberwidth or 4
+      --   components[2] = "%=" .. string.format("%" .. w .. "s", num) .. " "
+      -- If/when folke/snacks.nvim lands this (or equivalent), remove this patch.
       vim.api.nvim_create_autocmd("User", {
         pattern = "VeryLazy",
         once = true,
