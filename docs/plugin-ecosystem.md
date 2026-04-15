@@ -1,6 +1,6 @@
 # Plugin Ecosystem
 
-All 107 plugins currently tracked in `lazy-lock.json`, grouped by purpose. Plugin specs live under `lua/plugins/`; anything not listed there is pulled in via a LazyVim extra (see `lazyvim.json`).
+All 106 plugins tracked in `lazy-lock.json` (~101 resolve to actual clones on disk after dedup). Plugin specs live under `lua/plugins/`; anything not listed there is pulled in via a LazyVim extra (see `lazyvim.json`).
 
 Legend: **[custom]** = non-trivial local config in `lua/plugins/<name>.lua`. **[extra]** = comes from a LazyVim extra, no local override. **[dep]** = library/peer dependency.
 
@@ -18,9 +18,9 @@ Legend: **[custom]** = non-trivial local config in `lua/plugins/<name>.lua`. **[
 
 ## Colorschemes
 
-- `catppuccin` — Theme, part of fallback chain.
-- `tokyonight.nvim` — Theme (LazyVim default).
-- Note: `lua/plugins/tokyonight.lua.deprecated` is retired — `gruvdark` is current primary via `lua/config/colors.lua`.
+- `tokyonight.nvim` — Active theme. LazyVim default; also second entry in the `install.colorscheme` fallback chain in `lua/config/lazy.lua` (and the first, `gruvdark`, is not installed, so this is what actually loads).
+- `catppuccin` — Fallback theme only. Installed but unused unless tokyonight fails to load.
+- Note: `lua/config/colors.lua` is a palette helper for lualine, **not** a colorscheme. `lua/plugins/tokyonight.lua.deprecated` is stale — the plugin is still active via the fallback chain.
 
 ## UI / Chrome
 

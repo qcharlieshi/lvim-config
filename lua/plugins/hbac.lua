@@ -1,8 +1,10 @@
--- allows for closing the unedited buffers automaticlly
--- TODO: doesn't seem to work?
+-- Auto-closes untouched buffers once the count exceeds `threshold`.
+-- Options MUST live inside `opts` — hbac passes `opts` to its `setup()`.
+-- Previously these were top-level spec fields, which lazy.nvim silently ignored.
 return {
   "axkirillov/hbac.nvim",
-  config = true,
-  autoclose = true, -- set autoclose to false if you want to close manually
-  threshold = 8,
+  opts = {
+    autoclose = true,
+    threshold = 8,
+  },
 }
