@@ -13,7 +13,7 @@ Socket discovery order:
     1. $NVIM_LISTEN_ADDRESS
     2. $NVIM  (when running inside nvim terminal)
     3. Sibling tmux pane nvim (auto-detected)
-    4. /tmp/nvim-server-$TMUX_PANE.pipe  (pane-specific socket)
+    4. /tmp/nvim-server-$TMUX_SESSION.pipe  (session-specific socket)
     5. /tmp/nvim-server.pipe  (legacy fallback)
 
 Commands:
@@ -43,6 +43,7 @@ Commands:
 
 import json
 import os
+import subprocess
 import sys
 
 import pynvim
@@ -105,13 +106,24 @@ def find_sibling_nvim_socket():
     return None
 
 
+def _tmux_session_name():
+    """Get current tmux session name, or 'default' if not in tmux."""
+    try:
+        return subprocess.check_output(
+            ["tmux", "display-message", "-p", "#S"],
+            stderr=subprocess.DEVNULL,
+        ).decode().strip() or "default"
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return "default"
+
+
 def connect():
-    tmux_pane = os.environ.get("TMUX_PANE", "default")
+    session = _tmux_session_name()
     candidates = [
         os.environ.get("NVIM_LISTEN_ADDRESS"),
         os.environ.get("NVIM"),
         find_sibling_nvim_socket(),
-        f"/tmp/nvim-server-{tmux_pane}.pipe",
+        f"/tmp/nvim-server-{session}.pipe",
         "/tmp/nvim-server.pipe",  # legacy fallback
     ]
     for sock in candidates:
