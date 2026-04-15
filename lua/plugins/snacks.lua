@@ -122,6 +122,44 @@ return {
         dbAnim.theAnimation(dbAnim.theAnimation)
       end, 100)
 
+      -- Pad line-number width in snacks.statuscolumn so the column doesn't
+      -- oscillate when the cursor's absolute line number gains/loses a digit
+      -- (which would shift extmark virt_lines, e.g. gitsigns deleted hunks).
+      -- Upstream emits `"%=" .. num .. " "` with no min-width.
+      vim.api.nvim_create_autocmd("User", {
+        pattern = "VeryLazy",
+        once = true,
+        callback = function()
+          local ok, ss = pcall(require, "snacks.statuscolumn")
+          if not ok or type(ss._get) ~= "function" then
+            return
+          end
+          local orig_get = ss._get
+          ss._get = function()
+            local s = orig_get()
+            local i = s:find("%%=%d")
+            if not i then
+              return s
+            end
+            local num_start = i + 2
+            local space = s:find(" ", num_start, true)
+            if not space then
+              return s
+            end
+            local num = s:sub(num_start, space - 1)
+            local win = vim.g.statusline_winid or 0
+            local ok_w, w = pcall(function()
+              return vim.wo[win].numberwidth
+            end)
+            w = (ok_w and w) or 4
+            if #num < w then
+              num = string.rep(" ", w - #num) .. num
+            end
+            return s:sub(1, i - 1) .. "%=" .. num .. s:sub(space)
+          end
+        end,
+      })
+
       -- Wrap Snacks.picker.pick to inject persisted hidden/ignored state
       vim.api.nvim_create_autocmd("User", {
         pattern = "VeryLazy",
