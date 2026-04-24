@@ -219,6 +219,7 @@ return {
       })
     end,
     opts = {
+      scroll = { enabled = false },
       dashboard = {
         width = 68,
         row = nil,

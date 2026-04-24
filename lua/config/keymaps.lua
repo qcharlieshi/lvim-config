@@ -2,6 +2,66 @@
 -- Default keymaps that are always set: https://github.com/LazyVim/LazyVim/blob/main/lua/lazyvim/config/keymaps.lua
 -- Add any additional keymaps here
 
+-- Fast key-repeat guard: two layers of defense against scroll freeze/jank.
+-- 1. EOF/BOF guard: swallow j/k at file boundaries (zero-cost no-op).
+-- 2. Rapid-scroll mode: after 2+ presses within 50ms, suppress CursorMoved
+--    autocmds (incline, navic, lualine) so each keypress only pays for the
+--    viewport redraw. A single CursorMoved fires 100ms after the last press
+--    so plugins catch up.
+local _rapid = {
+  timer = vim.uv.new_timer(),
+  saved_ei = nil,
+  last_press = 0,
+  THRESHOLD_MS = 50,
+  COOLDOWN_MS = 100,
+}
+
+local function _rapid_scroll_tick()
+  local now = vim.uv.now()
+  local rapid = (now - _rapid.last_press) < _rapid.THRESHOLD_MS
+  _rapid.last_press = now
+
+  if rapid and not _rapid.saved_ei then
+    _rapid.saved_ei = vim.o.eventignore
+    local ei = _rapid.saved_ei
+    vim.o.eventignore = (ei ~= "" and ei .. "," or "") .. "CursorMoved,CursorMovedI"
+  end
+
+  _rapid.timer:stop()
+  _rapid.timer:start(_rapid.COOLDOWN_MS, 0, vim.schedule_wrap(function()
+    if _rapid.saved_ei ~= nil then
+      vim.o.eventignore = _rapid.saved_ei
+      _rapid.saved_ei = nil
+      pcall(vim.api.nvim_exec_autocmds, "CursorMoved", { modeline = false })
+    end
+  end))
+end
+
+local function eof_safe_down()
+  if vim.api.nvim_win_get_cursor(0)[1] >= vim.api.nvim_buf_line_count(0) then
+    return ""
+  end
+  if vim.fn.mode(1) == "n" then
+    _rapid_scroll_tick()
+  end
+  return vim.v.count1 .. "j"
+end
+
+local function bof_safe_up()
+  if vim.api.nvim_win_get_cursor(0)[1] <= 1 then
+    return ""
+  end
+  if vim.fn.mode(1) == "n" then
+    _rapid_scroll_tick()
+  end
+  return vim.v.count1 .. "k"
+end
+
+vim.keymap.set("n", "j", eof_safe_down, { expr = true, silent = true, desc = "Down (EOF-safe)" })
+vim.keymap.set("n", "<Down>", eof_safe_down, { expr = true, silent = true, desc = "Down (EOF-safe)" })
+vim.keymap.set("n", "k", bof_safe_up, { expr = true, silent = true, desc = "Up (BOF-safe)" })
+vim.keymap.set("n", "<Up>", bof_safe_up, { expr = true, silent = true, desc = "Up (BOF-safe)" })
+
 -- Sets the current root to the buffer's directory
 vim.keymap.set("n", "<leader>ba", function()
   vim.cmd([[cd %:h]])

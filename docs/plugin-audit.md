@@ -34,23 +34,25 @@ Guarded by `if true then return {} end` so it's a no-op, but still clones behavi
 
 **Action:** either install an actual gruvdark/gruvbox plugin (if that was the intent) or remove `gruvdark` from the fallback list and drop `catppuccin` from `lazy-lock.json`.
 
-### `mini.nvim` meta + 10 individual mini.* submodules
+### `mini.nvim` meta + 10 individual mini.\* submodules
 
 `mini-misc.lua` pulls the meta repo just to call `mini.misc.setup_termbg_sync()`. LazyVim extras pull submodules (`mini.ai`, `mini.files`, …) from the same upstream. Net effect: the `mini.nvim` repo is cloned twice with different names. Not technically broken, but wasteful and confusing.
 
 **Action:** drop `mini-misc.lua`'s `"nvim-mini/mini.nvim"` dep; `require("mini.misc")` works from any already-loaded mini submodule.
 
-### Three markdown plugins
+### Three markdown plugins — **RESOLVED**
 
-- `markdown-plus.nvim` — editing helpers
-- `render-markdown.nvim` — inline (in-buffer) rendering
-- `markdown-preview.nvim` — browser HTML preview (node-based)
+Consolidated to `render-markdown.nvim` only:
 
-Distinct use cases, but `render-markdown` usually suffices. Confirm `markdown-plus` is earning its keep; `markdown-preview` is only useful if you open a browser preview.
+- `markdown-plus.nvim` — **removed**. Edit-time `<localleader>m*` keymaps were never wired into muscle memory; deleted `lua/plugins/markdown-plus.lua`.
+- `markdown-preview.nvim` — **disabled** via `lua/plugins/markdown.lua` (`enabled = false`). Browser HTML preview never used and carried a node/yarn build hook.
+- `render-markdown.nvim` — **kept**. In-buffer treesitter rendering (headers, code blocks, tables, callouts) earns its keep on every `.md` open.
 
-### `microscope.nvim`
+If a browser preview is ever needed again, flip the flag or swap in `peek.nvim` (Deno, no node hook).
 
-Tiny plugin bound to `<leader>r` for "peek definition". LSP `gd`/`gD`/`K` + `flash.nvim` already cover this. Candidate for removal.
+### `microscope.nvim` — **REMOVED**
+
+Tiny plugin bound to `<leader>r` for "peek definition". LSP `gd`/`gD`/`K` + `flash.nvim` already covered this, so deleted `lua/plugins/microscope.lua` and the `lazy-lock.json` entry. `<leader>r` is now free.
 
 ### Telescope just for venv-selector
 
@@ -89,7 +91,7 @@ No local override, and helm rarely shows up in daily work per CLAUDE.md stack. C
 ## Open questions
 
 1. **Colorscheme intent.** Did you expect `gruvdark` to load? If yes, that's an install regression (plugin was never committed). If no, drop it from the fallback list.
-2. **Snippet engines.** `lazyvim.json` pulls `coding.luasnip` *and* `coding.mini-snippets`. Which is blink actually consuming? One may be inert — pick one.
+2. **Snippet engines.** `lazyvim.json` pulls `coding.luasnip` _and_ `coding.mini-snippets`. Which is blink actually consuming? One may be inert — pick one.
 3. **Python testing/debugging always-on.** `neotest-python` + `nvim-dap-python` load at startup. Per CLAUDE.md, Python work is mostly inside LILT repos — worth switching to `ft = { "python" }` to trim startup cost outside those repos.
 4. **`persistence.nvim` vs. snacks sessions.** Snacks has its own session support. Double-loaded?
 
@@ -97,13 +99,13 @@ No local override, and helm rarely shows up in daily work per CLAUDE.md stack. C
 
 ## Numbers at a glance
 
-| Metric                                  | Count |
-| --------------------------------------- | ----- |
-| Lock entries                            | 106   |
+| Metric                                         | Count |
+| ---------------------------------------------- | ----- |
+| Lock entries                                   | 106   |
 | Actually cloned to `~/.local/share/nvim/lazy/` | 101   |
-| Local specs in `lua/plugins/`           | 35    |
-| `.deprecated` files                     | 9     |
-| LazyVim extras enabled                  | 50    |
+| Local specs in `lua/plugins/`                  | 35    |
+| `.deprecated` files                            | 9     |
+| LazyVim extras enabled                         | 50    |
 
 ---
 
@@ -111,6 +113,7 @@ No local override, and helm rarely shows up in daily work per CLAUDE.md stack. C
 
 - `lua/plugins/hbac.lua` — moved `autoclose`/`threshold` into `opts` so hbac actually receives them.
 - `docs/plugin-ecosystem.md` — corrected plugin count (107→106/~101) and the `gruvdark` primary-theme claim.
+- Markdown stack consolidated to `render-markdown.nvim` only: deleted `lua/plugins/markdown-plus.lua`, added `lua/plugins/markdown.lua` disabling `markdown-preview.nvim`.
 
 ## Suggested follow-ups (not done)
 
@@ -118,10 +121,10 @@ Pick whatever's worth your time:
 
 - [ ] Remove `catppuccin` (or install a real gruvdark) — `lazy-lock.json` + `lua/config/lazy.lua`
 - [ ] Kill `mini-misc.lua`'s duplicate `mini.nvim` dep
-- [ ] Drop `microscope.nvim` if `gd`/flash cover it
+- [x] Drop `microscope.nvim` if `gd`/flash cover it
 - [ ] Upgrade `venv-selector` → drop 3 telescope plugins
 - [ ] Delete 9 `.deprecated` files (or relocate)
 - [ ] Fix or drop `kulala.nvim`
 - [ ] Clean commented-out LSP blocks in `lsp.lua`
 - [ ] Delete the disabled `bufferline.lua`
-- [ ] Lazy-load `neotest-python` / `nvim-dap-python` on `ft=python`
+- [x] Lazy-load `neotest-python` / `nvim-dap-python` on `ft=python`

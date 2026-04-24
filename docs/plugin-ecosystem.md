@@ -48,7 +48,6 @@ Legend: **[custom]** = non-trivial local config in `lua/plugins/<name>.lua`. **[
 ## File / Buffer Management
 
 - `yazi.nvim` **[custom]** — Terminal file manager integration; `<leader>yc/yw`, `<c-up>` toggle.
-- `mini.files` — Miller-column file browser. [extra]
 - `hbac.nvim` **[custom]** — Auto-close untouched buffers, threshold 8.
 - `scope.nvim` — Per-tab buffer scoping.
 - `persistence.nvim` — Session save/restore.
@@ -59,8 +58,6 @@ Legend: **[custom]** = non-trivial local config in `lua/plugins/<name>.lua`. **[
 - `harpoon` — Pinned file quick-switch. [extra]
 - `recall.nvim` **[custom]** — Persistent global marks with snacks picker integration (`<leader>mm/mn/mp/mc/ml`).
 - `trailblazer.nvim` **[custom]** — Trail-marks with `<leader>t*` bindings.
-- `vim-tmux-navigator` **[custom]** — `<c-h/j/k/l>` seamless tmux+nvim pane moves.
-- `microscope.nvim` **[custom]** — `<leader>r` peek-definition popup.
 
 ## Search / Picker
 
@@ -146,8 +143,7 @@ Legend: **[custom]** = non-trivial local config in `lua/plugins/<name>.lua`. **[
 - `helm-ls.nvim` — Helm LSP. [extra]
 - `venv-selector.nvim` **[custom]** — Python venv picker (`<leader>cv/cV`).
 - `nvim-pretty-ts-errors` **[custom]** — TypeScript error prettifier; runs `npm install` on build.
-- `markdown-plus.nvim` — Markdown editing helpers.
-- `markdown-preview.nvim` — Browser-rendered markdown preview. [extra]
+- `markdown-preview.nvim` — Browser-rendered markdown preview. [extra, **disabled** in `lua/plugins/markdown.lua`]
 - `nvim-jqx` **[custom]** — JSON/YAML prettify; loaded on `json`/`yaml` ft.
 
 ## Data / Databases
