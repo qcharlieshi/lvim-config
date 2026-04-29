@@ -5,7 +5,7 @@ require("config.lazy")
 if vim.fn.has("mac") == 1 then
   require("config.codesign")
 end
-vim.g.python3_host_prog = "/Library/Frameworks/Python.framework/Versions/3.12/bin/python3"
+vim.g.python3_host_prog = vim.fn.expand("~/.local/share/nvim-python-venv/bin/python")
 
 -- use the existing buffers/tabs if avaliable
 vim.opt.switchbuf = { "useopen", "usetab" }
