@@ -28,6 +28,7 @@ return {
         end
 
         local ft_icon, ft_color = devicons.get_icon_color(filename)
+        ft_color = ft_color or "#6c7086"
         local modified = vim.bo[props.buf].modified
 
         -- Check if file has git modifications
