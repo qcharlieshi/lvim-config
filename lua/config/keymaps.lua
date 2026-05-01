@@ -2,15 +2,21 @@
 -- Default keymaps that are always set: https://github.com/LazyVim/LazyVim/blob/main/lua/lazyvim/config/keymaps.lua
 -- Add any additional keymaps here
 
--- Fast key-repeat guard: two layers of defense against scroll freeze/jank.
--- 1. EOF/BOF guard: swallow j/k at file boundaries (zero-cost no-op).
--- 2. Rapid-scroll mode: after 2+ presses within 50ms, suppress CursorMoved
---    autocmds (incline, navic, lualine) so each keypress only pays for the
---    viewport redraw. A single CursorMoved fires 100ms after the last press
---    so plugins catch up.
+-- Fast key-repeat guard: layered defense against scroll freeze/jank.
+-- 1. EOF/BOF guard for j/k: swallow at file boundaries (zero-cost no-op).
+-- 2. Rapid-scroll mode (covers j/k/<Down>/<Up>/<PageDown>/<PageUp>/<C-d>/<C-u>/<C-f>/<C-b>):
+--    after 2+ presses within 50ms, suppress CursorMoved AND WinScrolled
+--    autocmds + trip mini.animate's kill-switch so scroll animations don't
+--    queue. Without WinScrolled in the ignore set, mini.animate.scroll
+--    (LazyVim's mini-animate extra runs a 150ms linear animation per scroll
+--    event) accumulates a queue under fast key-repeat and stalls input —
+--    most visible asymmetrically on PageDown because PageUp at BOF is a
+--    no-op that never queues an animation.
+--    A single CursorMoved fires 100ms after the last press so plugins catch up.
 local _rapid = {
   timer = vim.uv.new_timer(),
   saved_ei = nil,
+  saved_animate = nil,
   last_press = 0,
   THRESHOLD_MS = 50,
   COOLDOWN_MS = 100,
@@ -24,17 +30,25 @@ local function _rapid_scroll_tick()
   if rapid and not _rapid.saved_ei then
     _rapid.saved_ei = vim.o.eventignore
     local ei = _rapid.saved_ei
-    vim.o.eventignore = (ei ~= "" and ei .. "," or "") .. "CursorMoved,CursorMovedI"
+    vim.o.eventignore = (ei ~= "" and ei .. "," or "") .. "CursorMoved,CursorMovedI,WinScrolled"
+    _rapid.saved_animate = vim.g.minianimate_disable
+    vim.g.minianimate_disable = true
   end
 
   _rapid.timer:stop()
-  _rapid.timer:start(_rapid.COOLDOWN_MS, 0, vim.schedule_wrap(function()
-    if _rapid.saved_ei ~= nil then
-      vim.o.eventignore = _rapid.saved_ei
-      _rapid.saved_ei = nil
-      pcall(vim.api.nvim_exec_autocmds, "CursorMoved", { modeline = false })
-    end
-  end))
+  _rapid.timer:start(
+    _rapid.COOLDOWN_MS,
+    0,
+    vim.schedule_wrap(function()
+      if _rapid.saved_ei ~= nil then
+        vim.o.eventignore = _rapid.saved_ei
+        _rapid.saved_ei = nil
+        vim.g.minianimate_disable = _rapid.saved_animate
+        _rapid.saved_animate = nil
+        pcall(vim.api.nvim_exec_autocmds, "CursorMoved", { modeline = false })
+      end
+    end)
+  )
 end
 
 local function eof_safe_down()
@@ -61,6 +75,66 @@ vim.keymap.set("n", "j", eof_safe_down, { expr = true, silent = true, desc = "Do
 vim.keymap.set("n", "<Down>", eof_safe_down, { expr = true, silent = true, desc = "Down (EOF-safe)" })
 vim.keymap.set("n", "k", bof_safe_up, { expr = true, silent = true, desc = "Up (BOF-safe)" })
 vim.keymap.set("n", "<Up>", bof_safe_up, { expr = true, silent = true, desc = "Up (BOF-safe)" })
+
+-- Page / half-page motions go through the same throttle. <C-d>/<C-u> append
+-- `zz` to preserve LazyVim's centered-scroll default. vim.v.count (not count1)
+-- so an unprefixed <C-d> keeps its half-page semantics rather than being
+-- coerced to a 1-line scroll.
+local function rapid_scroll_keyseq(keyseq)
+  return function()
+    if vim.fn.mode(1) == "n" then
+      _rapid_scroll_tick()
+    end
+    if vim.v.count > 0 then
+      return vim.v.count .. keyseq
+    end
+    return keyseq
+  end
+end
+
+local _PageDown = vim.api.nvim_replace_termcodes("<PageDown>", true, true, true)
+local _PageUp = vim.api.nvim_replace_termcodes("<PageUp>", true, true, true)
+local _CtrlD = vim.api.nvim_replace_termcodes("<C-d>", true, true, true)
+local _CtrlU = vim.api.nvim_replace_termcodes("<C-u>", true, true, true)
+local _CtrlF = vim.api.nvim_replace_termcodes("<C-f>", true, true, true)
+local _CtrlB = vim.api.nvim_replace_termcodes("<C-b>", true, true, true)
+
+vim.keymap.set(
+  "n",
+  "<PageDown>",
+  rapid_scroll_keyseq(_PageDown),
+  { expr = true, silent = true, desc = "PageDown (throttled)" }
+)
+vim.keymap.set(
+  "n",
+  "<PageUp>",
+  rapid_scroll_keyseq(_PageUp),
+  { expr = true, silent = true, desc = "PageUp (throttled)" }
+)
+vim.keymap.set(
+  "n",
+  "<C-d>",
+  rapid_scroll_keyseq(_CtrlD .. "zz"),
+  { expr = true, silent = true, desc = "Half-page down (throttled, centered)" }
+)
+vim.keymap.set(
+  "n",
+  "<C-u>",
+  rapid_scroll_keyseq(_CtrlU .. "zz"),
+  { expr = true, silent = true, desc = "Half-page up (throttled, centered)" }
+)
+vim.keymap.set(
+  "n",
+  "<C-f>",
+  rapid_scroll_keyseq(_CtrlF),
+  { expr = true, silent = true, desc = "Page forward (throttled)" }
+)
+vim.keymap.set(
+  "n",
+  "<C-b>",
+  rapid_scroll_keyseq(_CtrlB),
+  { expr = true, silent = true, desc = "Page back (throttled)" }
+)
 
 -- Sets the current root to the buffer's directory
 vim.keymap.set("n", "<leader>ba", function()
@@ -145,8 +219,12 @@ vim.keymap.set("n", "<leader>dd", require("nvim-pretty-ts-errors").show_line_dia
 -- Smart save: prompt for filename if buffer is unnamed, otherwise just save
 vim.keymap.set({ "n", "i" }, "<C-s>", function()
   local bt = vim.bo.buftype
-  if bt ~= "" then return end -- skip terminal, nofile, prompt, dashboard, etc.
-  if vim.bo.readonly then return end
+  if bt ~= "" then
+    return
+  end -- skip terminal, nofile, prompt, dashboard, etc.
+  if vim.bo.readonly then
+    return
+  end
 
   if vim.api.nvim_buf_get_name(0) == "" then
     vim.ui.input({ prompt = "Save as: ", completion = "file" }, function(path)
