@@ -28,6 +28,11 @@ require("lazy").setup({
   },
   install = { colorscheme = { "gruvdark", "tokyonight", "habamax", "catppuccin" } },
   checker = { enabled = true }, -- automatically check for plugin updates
+  rocks = {
+    -- system luarocks is lua 5.2 (nix); image.nvim's `magick` rock needs lua 5.1.
+    -- hererocks lets lazy.nvim provision its own isolated lua 5.1 + luarocks.
+    hererocks = true,
+  },
   performance = {
     rtp = {
       -- disable some rtp plugins
