@@ -12,7 +12,15 @@
 --    event) accumulates a queue under fast key-repeat and stalls input —
 --    most visible asymmetrically on PageDown because PageUp at BOF is a
 --    no-op that never queues an animation.
---    A single CursorMoved fires 100ms after the last press so plugins catch up.
+--
+--    On exit, fire WinScrolled + CursorMoved WHILE the kill-switch is still
+--    tripped, so mini.animate's auto_scroll/auto_cursor hit their
+--    is_disabled() branches and clear H.cache.scroll_state / cursor_state.
+--    Without this resync, the next real scroll computes its animation from
+--    the stale pre-burst topline and starts with winrestview() back to it
+--    (mini/animate.lua:1627) — visible as a brief upward "jump" before the
+--    150ms linear animation slides forward again. Same firing also lets
+--    incline/navic/lualine catch up to the final cursor position.
 local _rapid = {
   timer = vim.uv.new_timer(),
   saved_ei = nil,
@@ -43,9 +51,10 @@ local function _rapid_scroll_tick()
       if _rapid.saved_ei ~= nil then
         vim.o.eventignore = _rapid.saved_ei
         _rapid.saved_ei = nil
+        pcall(vim.api.nvim_exec_autocmds, "WinScrolled", { modeline = false })
+        pcall(vim.api.nvim_exec_autocmds, "CursorMoved", { modeline = false })
         vim.g.minianimate_disable = _rapid.saved_animate
         _rapid.saved_animate = nil
-        pcall(vim.api.nvim_exec_autocmds, "CursorMoved", { modeline = false })
       end
     end)
   )
@@ -76,14 +85,46 @@ vim.keymap.set("n", "<Down>", eof_safe_down, { expr = true, silent = true, desc 
 vim.keymap.set("n", "k", bof_safe_up, { expr = true, silent = true, desc = "Up (BOF-safe)" })
 vim.keymap.set("n", "<Up>", bof_safe_up, { expr = true, silent = true, desc = "Up (BOF-safe)" })
 
--- Page / half-page motions go through the same throttle. <C-d>/<C-u> append
--- `zz` to preserve LazyVim's centered-scroll default. vim.v.count (not count1)
--- so an unprefixed <C-d> keeps its half-page semantics rather than being
--- coerced to a 1-line scroll.
+-- Page / half-page motions go through the same throttle.
+-- vim.v.count (not count1) so an unprefixed <C-d> keeps its half-page
+-- semantics rather than being coerced to a 1-line scroll.
 local function rapid_scroll_keyseq(keyseq)
   return function()
     if vim.fn.mode(1) == "n" then
       _rapid_scroll_tick()
+    end
+    if vim.v.count > 0 then
+      return vim.v.count .. keyseq
+    end
+    return keyseq
+  end
+end
+
+-- <C-d>/<C-u> want a "center cursor after scroll" (zz), but the synchronous
+-- `<C-d>zz` chain fights mini.animate: <C-d>'s WinScrolled triggers
+-- auto_scroll → start_scroll(prev_state) → winrestview(prev_state.view),
+-- which also restores the cursor to its pre-<C-d> position (mini/animate.lua
+-- :1627). The zz that follows in the same keyseq then centers on the wrong
+-- line and fires a second WinScrolled, which cancels the first animation
+-- mid-flight (scroll_event_id bump at mini/animate.lua:1380). The two
+-- scrolls visibly fight each other.
+--
+-- mini.animate's own fix (documented at mini/animate.lua:235-243):
+-- MiniAnimate.execute_after("scroll", action) defers `action` until the
+-- scroll animation's MiniAnimateDoneScroll event fires. If no animation is
+-- active (rapid-scroll mode disables it, or user toggled <leader>ua),
+-- execute_after runs `action` immediately.
+local function rapid_scroll_with_recenter(keyseq)
+  return function()
+    if vim.fn.mode(1) == "n" then
+      _rapid_scroll_tick()
+    end
+    if _G.MiniAnimate ~= nil then
+      MiniAnimate.execute_after("scroll", "normal! zz")
+    else
+      vim.schedule(function()
+        vim.cmd("normal! zz")
+      end)
     end
     if vim.v.count > 0 then
       return vim.v.count .. keyseq
@@ -114,13 +155,13 @@ vim.keymap.set(
 vim.keymap.set(
   "n",
   "<C-d>",
-  rapid_scroll_keyseq(_CtrlD .. "zz"),
+  rapid_scroll_with_recenter(_CtrlD),
   { expr = true, silent = true, desc = "Half-page down (throttled, centered)" }
 )
 vim.keymap.set(
   "n",
   "<C-u>",
-  rapid_scroll_keyseq(_CtrlU .. "zz"),
+  rapid_scroll_with_recenter(_CtrlU),
   { expr = true, silent = true, desc = "Half-page up (throttled, centered)" }
 )
 vim.keymap.set(
