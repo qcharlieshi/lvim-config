@@ -380,6 +380,20 @@ return {
           },
         },
         sources = {
+          -- Sidekick's CLI picker: append tmux pane titles so several claude
+          -- instances in one tmux session/cwd are distinguishable and searchable.
+          select = {
+            kinds = {
+              sidekick_cli = {
+                transform = function(item)
+                  return require("lib.sidekick-picker").transform(item)
+                end,
+                format = function(item, picker)
+                  return require("lib.sidekick-picker").format(item, picker)
+                end,
+              },
+            },
+          },
           explorer = {
             focus = "list",
             auto_close = true,

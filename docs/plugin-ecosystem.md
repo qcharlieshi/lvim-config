@@ -120,7 +120,8 @@ Legend: **[custom]** = non-trivial local config in `lua/plugins/<name>.lua`. **[
 - `mini.diff` — Inline diff source (feeds lualine). [extra]
 - `diffview.nvim` — **Deprecated** (`.deprecated` file kept); replaced by mini.diff.
 - `codediff.nvim` **[custom]** — Tree-mode diff explorer for branch compare.
-- `octo.nvim` **[custom]** — GitHub PR/issue review with `use_local_fs=true`.
+- `atlas.nvim` **[custom]** — Multi-provider PR/issue dashboard (`:Atlas`, lazy on cmd); GitHub via `gh`, Jira/GitLab/Bitbucket via tokens.
+- `octo.nvim` — **Deprecated** (extra removed + `.deprecated` file kept); replaced by atlas.nvim.
 
 ## Testing / Debugging
 
@@ -188,6 +189,7 @@ Files suffixed `.lua.deprecated` in `lua/plugins/`:
 - `diffview.lua` — replaced by mini.diff
 - `friendly-snippets.lua` — now pulled in via LazyVim extra
 - `hbac.lua` — auto-close untouched buffers, superseded
+- `octo.lua` — replaced by atlas.nvim
 - `quickscope.lua` — replaced by flash
 - `tokyonight.lua` — replaced by gruvdark
 - `wilder.lua` — replaced by noice
@@ -206,6 +208,6 @@ From `lazyvim.json` (each pulls a bundle of plugins above):
 **LSP**: none-ls
 **Test**: core
 **UI**: edgy, indent-blankline, mini-animate, mini-indentscope, smear-cursor, treesitter-context
-**Util**: dot, mini-hipatterns, octo, rest
+**Util**: dot, mini-hipatterns, rest
 **Langs**: docker, git, go, helm, java, json, kotlin, markdown, nix, python, rust, sql, tailwind, terraform, toml, typescript, yaml
 **Other**: vscode
