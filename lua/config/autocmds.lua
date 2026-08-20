@@ -29,3 +29,16 @@ vim.api.nvim_create_autocmd("BufReadCmd", {
     end)
   end,
 })
+
+-- Markdown: soft-wrap and pipe tables are mutually exclusive. A wide table row
+-- wraps onto continuation lines while render-markdown's borders (virtual lines)
+-- clip at the window edge, so borders and cells no longer line up — and the raw
+-- source is equally unreadable. LazyVim's wrap_spell autocmd turns wrap on for
+-- markdown; undo just the wrap half and keep spell. `<leader>uw` re-enables it
+-- for prose-heavy buffers.
+vim.api.nvim_create_autocmd("FileType", {
+  pattern = { "markdown", "markdown.mdx" },
+  callback = function()
+    vim.opt_local.wrap = false
+  end,
+})

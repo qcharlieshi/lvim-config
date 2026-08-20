@@ -10,7 +10,7 @@ A code-preview.nvim-style review surface for Claude Code edits, built from exist
 
 - Reuses `nvim_bridge.py` socket discovery, `codediff.nvim`, sidekick's tmux mux, gitsigns — no new abstractions.
 - ~80 lines bash + ~60 lines Lua vs. an evolving third-party plugin coupled to neo-tree.
-- The plugin's value is specifically that diffs land *in nvim* (searchable, jump-to-def, marks). Claude Code's native CLI prompt already shows a diff for blocking review; we want a richer post-hoc surface and we want it to integrate with the existing `<leader>a*` family.
+- The plugin's value is specifically that diffs land _in nvim_ (searchable, jump-to-def, marks). Claude Code's native CLI prompt already shows a diff for blocking review; we want a richer post-hoc surface and we want it to integrate with the existing `<leader>a*` family.
 
 Won't get: cross-backend adapters (OpenCode, Copilot CLI). Skip until needed.
 
@@ -45,6 +45,7 @@ Bash. Reads tool payload from stdin (Claude Code hook contract):
 ```
 
 Behavior:
+
 - `mkdir -p /tmp/claude-snapshots/$session_id`
 - Hash `file_path` (`shasum | cut -c1-12`); snapshot path `$SNAP_DIR/$hash.<ext>`
 - If snapshot doesn't exist yet: copy `file_path` → snapshot. (For `Write` of new files: `: > snapshot` so diff shows as added.)
