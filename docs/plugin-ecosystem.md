@@ -48,7 +48,6 @@ Legend: **[custom]** = non-trivial local config in `lua/plugins/<name>.lua`. **[
 ## File / Buffer Management
 
 - `yazi.nvim` **[custom]** — Terminal file manager integration; `<leader>yc/yw`, `<c-up>` toggle.
-- `hbac.nvim` **[custom]** — Auto-close untouched buffers, threshold 8.
 - `scope.nvim` — Per-tab buffer scoping.
 - `persistence.nvim` — Session save/restore.
 
@@ -156,7 +155,6 @@ Legend: **[custom]** = non-trivial local config in `lua/plugins/<name>.lua`. **[
 ## HTTP / API
 
 - `kulala.nvim` **[custom]** — REST client (`<leader>R*`), runs on `http`/`rest` ft. [extra via `util.rest`]
-- `apidocs.nvim` **[custom]** — Offline devdocs viewer (`<leader>k*`); uses snacks picker.
 
 ## Diagrams / Images
 
@@ -183,11 +181,13 @@ Legend: **[custom]** = non-trivial local config in `lua/plugins/<name>.lua`. **[
 Files suffixed `.lua.deprecated` in `lua/plugins/`:
 
 - `aider.lua` — replaced by sidekick/claude-code workflow
+- `apidocs.lua` — offline devdocs viewer, unused
 - `claude-code.lua` — replaced by sidekick
 - `comrade.lua` — superseded
 - `deoplete.lua` — pre-blink completion
 - `diffview.lua` — replaced by mini.diff
 - `friendly-snippets.lua` — now pulled in via LazyVim extra
+- `hbac.lua` — auto-close untouched buffers, superseded
 - `quickscope.lua` — replaced by flash
 - `tokyonight.lua` — replaced by gruvdark
 - `wilder.lua` — replaced by noice
