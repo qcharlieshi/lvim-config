@@ -137,6 +137,20 @@ def connect():
     sys.exit(1)
 
 
+def ex(nvim, command):
+    """Execute an ex command and record it in `:` history so the user can
+    reinvoke it (q:, :↑). Use plain nvim.command() for cursor motions and
+    other noise that doesn't belong in history."""
+    nvim.call("histadd", ":", command)
+    nvim.command(command)
+
+
+def lua(nvim, code):
+    """Execute a Lua action and record it as `:lua <code>` in history."""
+    nvim.call("histadd", ":", f"lua {code}")
+    return nvim.exec_lua(code, [])
+
+
 # ---------------------------------------------------------------------------
 # Commands
 # ---------------------------------------------------------------------------
@@ -148,7 +162,7 @@ def cmd_open(nvim, args):
         sys.exit(1)
     filepath = os.path.abspath(args[0])
     line = int(args[1]) if len(args) > 1 else None
-    nvim.command(f"edit {filepath}")
+    ex(nvim, f"edit {filepath}")
     if line:
         nvim.command(f"{line}")
         nvim.command("normal! zz")
@@ -164,7 +178,7 @@ def cmd_open_many(nvim, args):
         filepath = os.path.abspath(f)
         nvim.command(f"badd {filepath}")
     # Focus the first one
-    nvim.command(f"edit {os.path.abspath(args[0])}")
+    ex(nvim, f"edit {os.path.abspath(args[0])}")
     print(f"Opened {len(args)} buffers")
 
 
@@ -172,8 +186,8 @@ def cmd_harpoon_add(nvim, args):
     """Add file to harpoon2 list."""
     if args:
         filepath = os.path.abspath(args[0])
-        nvim.command(f"edit {filepath}")
-    nvim.exec_lua('require("harpoon"):list():add()', [])
+        ex(nvim, f"edit {filepath}")
+    lua(nvim, 'require("harpoon"):list():add()')
     name = nvim.call("expand", "%:t")
     print(f"Added {name} to harpoon")
 
@@ -207,7 +221,7 @@ def cmd_mark(nvim, args):
 
     if len(args) >= 2:
         filepath = os.path.abspath(args[1])
-        nvim.command(f"edit {filepath}")
+        ex(nvim, f"edit {filepath}")
     if len(args) >= 3:
         line = int(args[2])
         nvim.command(f"{line}")
@@ -224,9 +238,9 @@ def cmd_trail(nvim, args):
         sys.exit(1)
     filepath = os.path.abspath(args[0])
     line = int(args[1])
-    nvim.command(f"edit {filepath}")
+    ex(nvim, f"edit {filepath}")
     nvim.command(f"{line}")
-    nvim.exec_lua('require("trailblazer").new_trail_mark()', [])
+    lua(nvim, 'require("trailblazer").new_trail_mark()')
     print(f"Trail mark at {os.path.basename(filepath)}:{line}")
 
 
@@ -236,7 +250,7 @@ def cmd_kulala(nvim, args):
         print("Usage: kulala <file.http>", file=sys.stderr)
         sys.exit(1)
     filepath = os.path.abspath(args[0])
-    nvim.command(f"edit {filepath}")
+    ex(nvim, f"edit {filepath}")
     print(f"Opened {filepath} (use <leader>Rs to send)")
 
 
@@ -276,7 +290,7 @@ def cmd_kulala_gen(nvim, args):
     with open(outfile, "w") as f:
         f.write("\n".join(lines))
 
-    nvim.command(f"edit {outfile}")
+    ex(nvim, f"edit {outfile}")
     print(f"Generated {outfile} with {len(spec)} request(s)")
 
 
@@ -288,11 +302,11 @@ def cmd_grip_connect(nvim, args):
     URL formats: postgresql://user:pass@host:5432/db, sqlite:path.db, duckdb:path.duckdb
     """
     if not args:
-        nvim.command("GripConnect")
+        ex(nvim, "GripConnect")
         print("Opened connection picker")
         return
     url = args[0]
-    nvim.command(f"GripConnect {url}")
+    ex(nvim, f"GripConnect {url}")
     print(f"Connected to {url}")
 
 
@@ -305,7 +319,7 @@ def cmd_grip_open(nvim, args):
     if not args:
         print("Usage: grip_open <table_or_path> [--write] [--watch[=interval]]", file=sys.stderr)
         sys.exit(1)
-    nvim.command(f"Grip {' '.join(args)}")
+    ex(nvim, f"Grip {' '.join(args)}")
     print(f"Opened {args[0]} in Grip grid")
 
 
@@ -313,22 +327,22 @@ def cmd_grip_query(nvim, args):
     """Open Grip query pad, optionally prepopulated with SQL."""
     if args:
         sql = " ".join(args)
-        nvim.command(f"GripQuery {sql}")
+        ex(nvim, f"GripQuery {sql}")
         print("Opened query pad with SQL")
     else:
-        nvim.command("GripQuery")
+        ex(nvim, "GripQuery")
         print("Opened query pad")
 
 
 def cmd_grip_tables(nvim, args):
     """Open Grip fuzzy table picker."""
-    nvim.command("GripTables")
+    ex(nvim, "GripTables")
     print("Opened table picker")
 
 
 def cmd_grip_schema(nvim, args):
     """Toggle Grip schema browser sidebar."""
-    nvim.command("GripSchema")
+    ex(nvim, "GripSchema")
     print("Toggled schema sidebar")
 
 
@@ -344,7 +358,7 @@ def cmd_grip_attach(nvim, args):
         sys.exit(1)
     conn = args[0]
     alias = args[1]
-    nvim.command(f"GripAttach {conn} {alias}")
+    ex(nvim, f"GripAttach {conn} {alias}")
     print(f"Attached {conn} as '{alias}'")
 
 
@@ -386,13 +400,13 @@ def cmd_grip_gen(nvim, args):
     with open(outfile, "w") as f:
         f.write("\n".join(lines))
 
-    nvim.command(f"edit {outfile}")
+    ex(nvim, f"edit {outfile}")
     print(f"Generated {outfile} with {len(spec)} queries")
 
 
 def cmd_grip_home(nvim, args):
     """Open Grip home / welcome screen."""
-    nvim.command("GripHome")
+    ex(nvim, "GripHome")
     print("Opened Grip home")
 
 
@@ -404,9 +418,7 @@ def cmd_scoped_grep(nvim, args):
     title = args[0]
     files = [os.path.abspath(f) for f in args[1:]]
     files_lua = "{" + ",".join(f'"{f}"' for f in files) + "}"
-    nvim.exec_lua(
-        f'require("lib.scoped-grep").grep_files({files_lua}, "{title}")', []
-    )
+    lua(nvim, f'require("lib.scoped-grep").grep_files({files_lua}, "{title}")')
     print(f"Scoped grep: {title} ({len(files)} files)")
 
 
@@ -475,6 +487,7 @@ def cmd_exec(nvim, args):
         print("Usage: exec <lua_code>", file=sys.stderr)
         sys.exit(1)
     code = " ".join(args)
+    nvim.call("histadd", ":", f"lua ={code}")
     result = nvim.exec_lua(f"return {code}", [])
     if result is not None:
         print(json.dumps(result, indent=2) if isinstance(result, (dict, list)) else result)
@@ -485,7 +498,7 @@ def cmd_cmd(nvim, args):
     if not args:
         print("Usage: cmd <vim_command>", file=sys.stderr)
         sys.exit(1)
-    nvim.command(" ".join(args))
+    ex(nvim, " ".join(args))
     print("OK")
 
 
