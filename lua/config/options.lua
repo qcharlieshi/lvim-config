@@ -8,6 +8,10 @@ vim.g.root_spec = { "cwd" }
 -- disable diagnostics by default (toggle with <leader>ud)
 vim.diagnostic.enable(false)
 
+-- lsp.log is never rotated; at WARN, copilot-language-server's window/logMessage
+-- spam (OrgCustomAgentClient 404s every few minutes per repo) grew it past 13MB.
+vim.lsp.log.set_level(vim.log.levels.ERROR)
+
 -- Reduce scroll-down stutter under fast key repeat: avoid EOF "wall" where
 -- buffered keypresses can't move the cursor and back up the input queue.
 vim.opt.scrolloff = 1
