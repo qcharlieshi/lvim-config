@@ -287,3 +287,65 @@
   4. A diff run opens CodeDiff.
   5. `<leader>ff` in the cockpit tab lists files under `repos/…`.
 - [ ] **Step 6:** Commit `lua/cockpit/inbox/ui.lua lua/plugins/snacks.lua docs/keybindings.md scripts/cockpit-smoke-herdr.sh` plus the staged lualine hunk: `feat(cockpit): CodeDiff auto-open, deliverable buffer list, picker follow`.
+
+---
+
+## Amendment (2026-11-11, approved by the user in chat)
+
+Two follow-ups added after the user saw the rail fill with empty FYI threads and noticed none of their Claude sessions appear as agents.
+
+### Task 9: Quieter Stop hook
+
+**Files:**
+- Modify `scripts/cockpit_inbox.py` (`hook_stop`)
+- Modify `scripts/cockpit-smoke-herdr.sh` (section 14, no herdr: pipe hook JSON into `cockpit_inbox.py hook stop` with `HERDR_PANE_ID=w0:p0` set, `TMUX_PANE` unset and a temp `COCKPIT_INBOX_DIR`)
+
+**Behavior.** An unwatched stop, where nothing was posted and no files were edited, posts only when:
+- the agent was answering an inbox reply (`reply_thread` is set), in which case it appends to that thread; or
+- its last line ends with `?`, in which case it posts as a question.
+
+Plain status chatter posts **nothing**. The edited-files branch (block, telling the agent to post for review) is unchanged.
+
+- [ ] **Step 1:** Write section 14 with three payloads, using a transcript fixture with no edits:
+  - last line `Done.` → no thread file is created;
+  - last line `Which one?` → a `session-*` thread exists with one question;
+  - a prompt `Inbox reply on thread T1.` with last line `ok` → thread T1 gets a new message.
+- [ ] **Step 2:** Run it and watch it fail.
+- [ ] **Step 3:** Implement.
+- [ ] **Step 4:** Run it and see it pass.
+- [ ] **Step 5:** Commit `scripts/cockpit_inbox.py scripts/cockpit-smoke-herdr.sh`.
+
+### Task 10: `claude` starts through herdr
+
+**Files:**
+- Create `scripts/cockpit-claude` (bash launcher) and `scripts/cockpit-spawn.lua` (headless nvim entry: `nvim --headless -u NONE --cmd "set rtp^=<nvim cfg>" -l scripts/cockpit-spawn.lua -- <cwd> <claude args…>`)
+- Modify `lua/cockpit/herdr.lua`: `spawn(project, prompt, cb, opts)` with `opts = {args = {…}, interactive = false}`. Extra claude args are appended. With `interactive == false` there's no `vim.ui.select` on `agent_not_ready`, and the cb still receives the name.
+- Modify `lua/cockpit/projects.lua`: `projects.for_dir(dir) -> name`. This is the project whose `repos` contain `git -C dir rev-parse --show-toplevel` (worktrees resolve via `--git-common-dir`'s parent). If there's none, create a project named after the repo basename (slugged to `[a-z][a-z0-9_-]`, max 28 chars) with that one repo.
+- Modify `~/.config/nix-darwin/dotfiles/.zshrc` (a **different repo**, already dirty: stage only the new hunk) with a `claude()` function calling `~/.config/nvim/scripts/cockpit-claude "$@"`.
+- Modify `scripts/cockpit-smoke-herdr.sh` (section 15).
+
+**Launcher behavior (`cockpit-claude`):**
+- **Bypass** (`exec command claude "$@"`) when any of these hold:
+  - not in tmux (`$TMUX` empty);
+  - already inside herdr (`HERDR_ENV=1`);
+  - `COCKPIT_NO_HERDR=1`;
+  - any arg is `-p`, `--print`, `-v`, `--version`, `-h`, `--help`, or a subcommand (first arg doesn't start with `-`).
+  - It also bypasses when the herdr server can't be ensured. In that case it prints one warning line first.
+- **Otherwise:**
+  1. Run `cockpit-spawn.lua`, which does `ensure()` → `projects.for_dir(cwd)` → `herdr.spawn(project, nil, cb, {args = "$@", interactive = false})` and prints the agent name.
+  2. Then `herdr agent attach <name>` in the current tmux pane.
+  3. When attach returns: if the agent is no longer live (Claude exited), close its herdr pane so no empty shell panes pile up. If it's still live (you detached), leave it running.
+
+**Test (section 15):** inside the isolated `ckspike` session, with `TMUX` set to a dummy value:
+- `cockpit-spawn.lua` for `cwd = ~/.config/nvim` prints an agent name;
+- that agent is live in a `ck/<project>` workspace, and its project file exists;
+- a second run reuses the same project;
+- bypass: `COCKPIT_NO_HERDR=1 cockpit-claude --version` prints Claude's version without starting herdr.
+
+`herdr agent attach` (interactive) is checked manually.
+
+**Manual check:**
+1. In a tmux pane in a repo, run `claude`. You land in Claude as usual, and it appears in the rail under that repo's project.
+2. `/exit` leaves no stray herdr pane.
+
+**Amendment rule for all remaining dispatches:** any `claude`, `herdr` or `nvim` process started outside the smoke script's isolated setup must set `COCKPIT_INBOX_DIR` to a scratch dir and `COCKPIT_INBOX_HOOK=0`, and unset `TMUX`/`TMUX_PANE`. Earlier probes leaked 14 test threads into the user's real inbox, which the controller deleted with the user's approval.
