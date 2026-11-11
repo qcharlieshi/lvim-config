@@ -285,3 +285,6 @@ local sg = require("lib.scoped-grep")
 vim.keymap.set("n", "<leader>sB", sg.grep_buffers, { desc = "Scoped grep: open buffers" })
 vim.keymap.set("n", "<leader>sa", sg.grep_git_changed, { desc = "Scoped grep: git changed (vs origin/main)" })
 vim.keymap.set("n", "<leader>sd", sg.grep_diff, { desc = "Scoped grep: diff vs branch/commit" })
+
+-- Cockpit inbox — review agent documents/diffs, reply with a verdict (<leader>ka inbox, <leader>kb board)
+require("cockpit.inbox").setup()
