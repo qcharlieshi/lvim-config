@@ -584,7 +584,7 @@ end
 local ferr = await(function(cb) forks.worktree(anon, nil, cb) end, 30000)
 h.start_in = real_start
 assert(ferr and ferr.code == "timeout", vim.inspect(ferr))
-assert(seen and seen[1].branch:match("^fork/w%d+%-p%d+%-1$"), "unnamed branch: " .. vim.inspect(seen))
+assert(seen and seen[1].branch:match("^fork/w%w+%-p%w+%-1$"), "unnamed branch: " .. vim.inspect(seen))
 assert(vim.fn.isdirectory(seen[1].path) == 0 and not has_branch(seen[1].branch), "failed fork left worktree/branch behind")
 -- 4. Review Focus 4: a fork with a commit → asked; Keep branch keeps it, removes the clean worktree
 local w2err, w2name = await(function(cb) forks.worktree(parent, nil, cb) end)

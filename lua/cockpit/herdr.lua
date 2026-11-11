@@ -38,11 +38,15 @@ function M.request(method, params, cb, opts)
   seq = seq + 1
   local id = "ck" .. seq
   local done, out_err, out_res = false, nil, nil
+  local timer
   local function finish(err, res)
     if done then
       return
     end
     done, out_err, out_res = true, err, res
+    if timer and not timer:is_closing() then
+      timer:close()
+    end
     if cb then
       vim.schedule(function()
         cb(err, res)
@@ -50,32 +54,34 @@ function M.request(method, params, cb, opts)
     end
   end
   local pipe = assert(uv.new_pipe(false))
+  local function close_pipe()
+    if not pipe:is_closing() then
+      pipe:close()
+    end
+  end
   if cb then
     local ms = opts and opts.timeout_ms
     if not ms then
       local w = params and (params.timeout_ms or (params.wait and params.wait.timeout_ms))
       ms = w and (w + 10000) or 30000
     end
-    local timer = assert(uv.new_timer())
+    timer = assert(uv.new_timer())
     timer:start(ms, 0, function()
-      timer:close()
       if not done then
-        if not pipe:is_closing() then
-          pipe:close()
-        end
+        close_pipe()
         finish({ code = "timeout", message = method .. " timed out" })
       end
     end)
   end
   pipe:connect(M.socket(), function(cerr)
     if cerr then
-      pipe:close()
+      close_pipe()
       return finish({ code = "connect", message = cerr })
     end
     local buf = ""
     pipe:read_start(function(rerr, chunk)
       if rerr or not chunk then
-        pipe:close()
+        close_pipe()
         return finish({ code = "closed", message = rerr or "connection closed" })
       end
       buf = buf .. chunk
@@ -83,7 +89,7 @@ function M.request(method, params, cb, opts)
         local msg = decode(line)
         if msg and msg.id == id then
           pipe:read_stop()
-          pipe:close()
+          close_pipe()
           return finish(msg.error, msg.result)
         end
       end
@@ -334,10 +340,14 @@ function M.start_in(pane_id, name, args, rec, cb)
   vim.defer_fn(function()
     local function started(serr)
       -- Record the agent once it exists: on ready, and also when blocked at startup (the agent is kept)
-      if not serr or serr.code == "agent_not_ready" then
+      if not serr or serr.code == "agent_not_ready" or serr.code == "timeout" then
         local _, got = M.request("agent.get", { target = name })
         local a = got and got.agent
         if a and a.terminal_id then
+          if serr and serr.code == "timeout" then
+            -- a lost reply, not a failed start: the agent exists, so judge it by its status
+            serr = a.agent_status == "blocked" and { code = "agent_not_ready", message = name .. " is blocked during startup" } or nil
+          end
           require("cockpit.registry").append(rec.project, vim.tbl_extend("force", rec, {
             name = name,
             terminal_id = a.terminal_id,
