@@ -14,8 +14,14 @@ local function preamble(parent)
   return ("You are a fork of %s. Open new inbox threads for your work; don't post to your parent's threads."):format(parent.name)
 end
 
-local function with_prompt(first, prompt)
-  return (prompt and prompt ~= "") and (first .. "\n\n" .. prompt) or first
+-- A hand-started agent has no name (its cache key is the pane id): display it by target, and
+-- slug that for branch/path use (pane ids contain ':', which git refs reject).
+local function named(parent)
+  return vim.tbl_extend("force", parent, { name = parent.name or parent.target })
+end
+
+local function slug(name)
+  return (name:gsub("[^%w._-]", "-"))
 end
 
 -- herdr's view first, the registry record as fallback
@@ -33,7 +39,7 @@ end
 local function check(parent)
   local p = parent.project and require("cockpit.projects").get(parent.project)
   if not p then
-    vim.notify("cockpit: " .. tostring(parent.name) .. " is not in a project", vim.log.levels.WARN)
+    vim.notify("cockpit: " .. parent.name .. " is not in a project", vim.log.levels.WARN)
     return
   end
   local session = session_of(parent)
@@ -50,8 +56,13 @@ local function check(parent)
   return p, session
 end
 
--- Split a pane next to the parent and start the resumed fork there; record it, then send `first`.
-local function start(parent, session, cwd, add_dirs, first, rec, cb)
+-- Split a pane next to the parent and start the resumed fork there; record it, then send the
+-- user's prompt. The fork preamble is given at launch, so a fork blocked at startup (folder trust)
+-- still gets it once you answer the dialog: as SessionStart hook context via --settings, because
+-- --append-system-prompt / --system-prompt are ignored on --resume (claude 2.1.322). `undo` runs when the fork never
+-- came to exist (split failed, or start failed other than blocked).
+local function start(parent, session, cwd, add_dirs, system, prompt, rec, cb, undo)
+  undo = undo or function() end
   local herdr = require("cockpit.herdr")
   local project = parent.project
   local env = { COCKPIT_PROJECT = project, COCKPIT_INBOX_DIR = vim.env.COCKPIT_INBOX_DIR, COCKPIT_PARENT = parent.name }
@@ -63,17 +74,24 @@ local function start(parent, session, cwd, add_dirs, first, rec, cb)
     env = env,
   })
   if err then
+    undo()
     vim.notify("cockpit: fork failed — " .. err.message, vim.log.levels.ERROR)
     return cb(err)
   end
-  local args = { "--resume", session, "--fork-session" }
+  local pane_id = res.pane.pane_id
+  local hook = { type = "command", command = "printf '%s\\n' " .. vim.fn.shellescape(system) }
+  local settings = vim.json.encode({ hooks = { SessionStart = { { hooks = { hook } } } } })
+  local args = { "--resume", session, "--fork-session", "--settings", settings }
   for _, d in ipairs(add_dirs) do
     vim.list_extend(args, { "--add-dir", d })
   end
   rec = vim.tbl_extend("force", rec, { project = project, parent_terminal = parent.terminal_id, parent_name = parent.name })
-  herdr.start_in(res.pane.pane_id, herdr.free_name(project), args, rec, function(serr, name)
-    if not serr then
-      herdr.request("agent.prompt", { target = name, text = first }, function() end)
+  herdr.start_in(pane_id, herdr.free_name(project), args, rec, function(serr, name)
+    if serr and serr.code ~= "agent_not_ready" then
+      herdr.request("pane.close", { pane_id = pane_id })
+      undo()
+    elseif not serr and prompt and prompt ~= "" then
+      herdr.request("agent.prompt", { target = name, text = prompt }, function() end)
     end
     cb(serr, name)
   end)
@@ -82,11 +100,12 @@ end
 -- f: fork in the parent's own checkout. cb(err, name).
 function M.continue(parent, prompt, cb)
   cb = cb or function() end
+  parent = named(parent)
   local p, session = check(parent)
   if not p then
-    return cb({ code = "no_session", message = "cannot fork " .. tostring(parent.name) })
+    return cb({ code = "no_session", message = "cannot fork " .. parent.name })
   end
-  start(parent, session, parent.cwd, vim.list_slice(p.repos, 2), with_prompt(preamble(parent), prompt), { fork = "continue" }, cb)
+  start(parent, session, parent.cwd, vim.list_slice(p.repos, 2), preamble(parent), prompt, { fork = "continue" }, cb)
 end
 
 local function exclude_worktrees(repo)
@@ -104,18 +123,28 @@ local function remove(w, force)
   return git(w.repo, unpack(cmd))
 end
 
+-- worktrees made for a fork that never started have no commits: drop them and their branch
+local function rollback(wts)
+  for _, w in ipairs(wts) do
+    remove(w, true)
+    git(w.repo, "branch", "-D", w.branch)
+  end
+end
+
 -- F: fork into fresh worktrees of every project repo. cb(err, name).
 function M.worktree(parent, prompt, cb)
   cb = cb or function() end
+  parent = named(parent)
   local p, session = check(parent)
   if not p then
-    return cb({ code = "no_session", message = "cannot fork " .. tostring(parent.name) })
+    return cb({ code = "no_session", message = "cannot fork " .. parent.name })
   end
+  local id = slug(parent.name)
   -- lowest n whose branch exists in none of the repos
   local n, branch = 0, nil
   repeat
     n = n + 1
-    branch = ("fork/%s-%d"):format(parent.name, n)
+    branch = ("fork/%s-%d"):format(id, n)
     local taken = vim.iter(p.repos):any(function(r)
       return (select(1, git(r, "rev-parse", "--verify", "--quiet", "refs/heads/" .. branch)))
     end)
@@ -123,14 +152,11 @@ function M.worktree(parent, prompt, cb)
   local wts = {}
   for _, repo in ipairs(p.repos) do
     exclude_worktrees(repo)
-    local path = ("%s/.worktrees/fork-%s-%d"):format(repo, parent.name, n)
+    local path = ("%s/.worktrees/fork-%s-%d"):format(repo, id, n)
     local _, base = git(repo, "rev-parse", "HEAD")
     local ok, _, gerr = git(repo, "worktree", "add", path, "-b", branch, "HEAD")
     if not ok then
-      for _, w in ipairs(wts) do -- roll back the ones already made
-        remove(w, true)
-        git(w.repo, "branch", "-D", w.branch)
-      end
+      rollback(wts)
       vim.notify("cockpit: worktree fork failed in " .. repo .. " — " .. gerr, vim.log.levels.ERROR)
       return cb({ code = "worktree", message = gerr })
     end
@@ -139,12 +165,14 @@ function M.worktree(parent, prompt, cb)
   local paths = vim.tbl_map(function(w)
     return w.path
   end, wts)
-  local first = ("You are a fork of %s working in separate git worktrees (%s) on branch %s. Only edit files there. "):format(
+  local system = ("You are a fork of %s working in separate git worktrees (%s) on branch %s. Only edit files there. "):format(
     parent.name,
     table.concat(paths, ", "),
     branch
   ) .. preamble(parent)
-  start(parent, session, paths[1], vim.list_slice(paths, 2), with_prompt(first, prompt), { fork = "worktree", worktrees = wts }, cb)
+  start(parent, session, paths[1], vim.list_slice(paths, 2), system, prompt, { fork = "worktree", worktrees = wts }, cb, function()
+    rollback(wts)
+  end)
 end
 
 -- After a worktree fork is killed: drop clean, commit-less worktrees + branch silently; otherwise

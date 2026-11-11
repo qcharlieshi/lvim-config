@@ -547,6 +547,13 @@ assert(crec.fork == "continue" and crec.parent_terminal == parent.terminal_id an
 assert(type(crec.session) == "string" and crec.session ~= psession, "fork session " .. tostring(crec.session) .. " vs parent " .. tostring(psession))
 assert(child.workspace_id == parent.workspace_id, "fork not in the parent's workspace")
 assert(h.agents()[pname], "parent died")
+-- the preamble arrives at launch as SessionStart context (survives a blocked start)
+local qerr = await(function(cb)
+  h.request("agent.prompt", { target = cname, text = "Per the context you were given at session start, which agent are you a fork of? Reply with only FORKOF=<that name>", wait = { timeout_ms = 180000 } }, cb)
+end, 190000)
+assert(not qerr, vim.inspect(qerr))
+local _, cread = h.request("agent.read", { target = cname, source = "recent_unwrapped", lines = 40 })
+assert(cread and vim.inspect(cread):find("FORKOF=" .. pname, 1, true), "fork does not know its parent: " .. vim.inspect(cread))
 rail.kill_agent(child)
 -- 2. worktree fork: branch fork/<parent>-1 + worktree dir
 local branch, wt = "fork/" .. pname .. "-1", nv .. "/.worktrees/fork-" .. pname .. "-1"
@@ -564,6 +571,21 @@ vim.ui.select = function(_, opts) error("asked: " .. opts.prompt) end
 rail.kill_agent(wa)
 assert(not has_branch(branch), branch .. " still exists")
 assert(vim.fn.isdirectory(wt) == 0, wt .. " still exists")
+-- 3b. unnamed parent (hand-started agent: cache key = pane id) + a start that fails → no orphans
+local anon = vim.deepcopy(parent); anon.name = nil
+anon.target = parent.pane_id
+local ok_nil, nerr2 = pcall(forks.continue, { project = "smoke", target = "w99:p99", terminal_id = "term_x" }, nil, function() end)
+assert(ok_nil, "unnamed parent without session threw: " .. tostring(nerr2))
+local real_start, seen = h.start_in, nil
+h.start_in = function(_, name, _, rec, cb)
+  seen = rec.worktrees
+  cb({ code = "timeout", message = "stubbed start failure" }, name)
+end
+local ferr = await(function(cb) forks.worktree(anon, nil, cb) end, 30000)
+h.start_in = real_start
+assert(ferr and ferr.code == "timeout", vim.inspect(ferr))
+assert(seen and seen[1].branch:match("^fork/w%d+%-p%d+%-1$"), "unnamed branch: " .. vim.inspect(seen))
+assert(vim.fn.isdirectory(seen[1].path) == 0 and not has_branch(seen[1].branch), "failed fork left worktree/branch behind")
 -- 4. Review Focus 4: a fork with a commit → asked; Keep branch keeps it, removes the clean worktree
 local w2err, w2name = await(function(cb) forks.worktree(parent, nil, cb) end)
 assert(not w2err, vim.inspect(w2err))
@@ -580,7 +602,7 @@ h.kill(pname)
 print("T12 OK")
 LUA
 NVIM_CFG=$NVIM_CFG nlua "$T/t12.lua" 2>&1 | tee "$T/t12.out" | grep -q "T12 OK" || { cat "$T/t12.out"; fail "section 12"; }
-ok "continue fork: own session, parent link, parent stays live; worktree fork: branch + worktree, clean kill removes both, kept branch survives a commit"
+ok "continue fork: own session, parent link, parent stays live, preamble at launch; unnamed parent + failed start leave no worktree; worktree fork: branch + worktree, clean kill removes both, kept branch survives a commit"
 [ "$LAST" -le 12 ] && exit 0
 
 echo "all sections passed"
