@@ -491,6 +491,73 @@ local HELP = {
   "  za zo zc zM zR zj zk  folds",
 }
 
+-- :CockpitCleanup — float of unarchived threads whose agent is gone; y archives them all, q cancels.
+function M.cleanup()
+  local herdr = require("cockpit.herdr")
+  local panes
+  local function pane_alive(p)
+    if not panes then
+      panes = {}
+      for _, id in ipairs(vim.fn.systemlist({ "tmux", "list-panes", "-a", "-F", "#{pane_id}" })) do
+        panes[id] = true
+      end
+    end
+    return panes[p]
+  end
+  local cands = vim.tbl_filter(function(t)
+    if t.archived then
+      return false
+    end
+    local h = t.owner and t.owner.herdr
+    if h then
+      return h.terminal_id ~= nil and herdr.by_terminal(h.terminal_id) == nil
+    end
+    local p = t.session and t.session.tmux_pane
+    return p ~= nil and not pane_alive(p)
+  end, store.threads())
+  if #cands == 0 then
+    return vim.notify("cockpit: nothing to clean up")
+  end
+  local lines = {}
+  for _, t in ipairs(cands) do
+    lines[#lines + 1] = ("%s · %s · %s"):format(t.title or t.id, t.project or "-", util.ago(t.last_ts))
+  end
+  lines[#lines + 1] = ""
+  lines[#lines + 1] = "y archive all · q cancel"
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  local w = 20
+  for _, l in ipairs(lines) do
+    w = math.max(w, vim.fn.strdisplaywidth(l))
+  end
+  w = math.min(w, vim.o.columns - 4)
+  local win = vim.api.nvim_open_win(buf, true, {
+    relative = "editor",
+    width = w,
+    height = #lines,
+    row = math.max(0, math.floor((vim.o.lines - #lines) / 2)),
+    col = math.max(0, math.floor((vim.o.columns - w) / 2)),
+    style = "minimal",
+    border = "rounded",
+    title = (" cleanup: %d dead-agent threads "):format(#cands),
+  })
+  local function close()
+    if vim.api.nvim_win_is_valid(win) then
+      vim.api.nvim_win_close(win, true)
+    end
+  end
+  util.map(buf, "y", function()
+    close()
+    for _, t in ipairs(cands) do
+      store.append(store.thread_file(t.id), { kind = "state", archived = true })
+    end
+    vim.notify(("cockpit: archived %d threads"):format(#cands))
+    ui().refresh()
+  end, "Archive all")
+  util.map(buf, "q", close, "Cancel")
+  util.map(buf, "<Esc>", close, "Cancel")
+end
+
 function M.attach(buf)
   views[buf] = views[buf] or new_view()
   local map, herdr = util.map, require("cockpit.herdr")

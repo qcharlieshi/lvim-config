@@ -94,6 +94,9 @@ function M.setup()
       return { "new", "edit" }
     end,
   })
+  vim.api.nvim_create_user_command("CockpitCleanup", function()
+    require("cockpit.inbox.rail").cleanup()
+  end, { desc = "Archive threads of dead agents" })
   vim.api.nvim_create_user_command("InboxBoard", function()
     ui().board()
   end, { desc = "Cockpit board" })

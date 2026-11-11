@@ -605,4 +605,40 @@ NVIM_CFG=$NVIM_CFG nlua "$T/t12.lua" 2>&1 | tee "$T/t12.out" | grep -q "T12 OK" 
 ok "continue fork: own session, parent link, parent stays live, preamble at launch; unnamed parent + failed start leave no worktree; worktree fork: branch + worktree, clean kill removes both, kept branch survives a commit"
 [ "$LAST" -le 12 ] && exit 0
 
+# --- 13: :CockpitCleanup — archive threads of dead agents ---------------------------------------------
+echo "13: cleanup"
+cat >"$T/t13.lua" <<'LUA'
+local store = require("cockpit.inbox.store")
+require("cockpit.inbox").setup()
+local rail = require("cockpit.inbox.rail")
+local function seed(id, session)
+  store.append(store.thread_file(id), { kind = "message", title = id, project = "smoke", session = session, text = "x", ts = os.time() - 7200 })
+end
+seed("c-gone", { agent = "a", herdr = { terminal_id = "term_gone" } })
+seed("c-tmux", { agent = "a", tmux_pane = "%999999" })
+seed("c-none", { agent = "a" })
+seed("c-old", { agent = "a", herdr = { terminal_id = "term_gone2" } })
+store.append(store.thread_file("c-old"), { kind = "state", archived = true })
+assert(vim.fn.exists(":CockpitCleanup") == 2, "no :CockpitCleanup command")
+rail.cleanup()
+local buf = vim.api.nvim_get_current_buf()
+local text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
+assert(text:find("c-gone", 1, true) and text:find("c-tmux", 1, true), "candidates not listed:\n" .. text)
+assert(not text:find("c-none", 1, true) and not text:find("c-old", 1, true), "non-candidates listed:\n" .. text)
+vim.api.nvim_feedkeys("y", "x", false)
+assert(store.thread("c-gone").archived, "c-gone not archived")
+assert(store.thread("c-tmux").archived, "c-tmux not archived")
+assert(not store.thread("c-none").archived, "c-none archived")
+assert(vim.fn.filereadable(store.thread_file("c-gone")) == 1, "thread file deleted")
+-- q cancels
+seed("c-q", { agent = "a", herdr = { terminal_id = "term_gone3" } })
+rail.cleanup()
+vim.api.nvim_feedkeys("q", "x", false)
+assert(not store.thread("c-q").archived, "q archived")
+print("T13 OK")
+LUA
+nlua "$T/t13.lua" 2>&1 | tee "$T/t13.out" | grep -q "T13 OK" || { cat "$T/t13.out"; fail "section 13"; }
+ok ":CockpitCleanup lists dead-agent threads, y archives (files kept), q cancels"
+[ "$LAST" -le 13 ] && exit 0
+
 echo "all sections passed"

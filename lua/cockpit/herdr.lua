@@ -33,7 +33,8 @@ local function decode(line)
 end
 
 -- One request per connection. Async with cb(err, result); sync (≤ 5 s) without, returning err, result.
-function M.request(method, params, cb)
+-- Async calls time out client-side (default 30 s; a server-side wait in params + 10 s) with err.code "timeout".
+function M.request(method, params, cb, opts)
   seq = seq + 1
   local id = "ck" .. seq
   local done, out_err, out_res = false, nil, nil
@@ -49,6 +50,23 @@ function M.request(method, params, cb)
     end
   end
   local pipe = assert(uv.new_pipe(false))
+  if cb then
+    local ms = opts and opts.timeout_ms
+    if not ms then
+      local w = params and (params.timeout_ms or (params.wait and params.wait.timeout_ms))
+      ms = w and (w + 10000) or 30000
+    end
+    local timer = assert(uv.new_timer())
+    timer:start(ms, 0, function()
+      timer:close()
+      if not done then
+        if not pipe:is_closing() then
+          pipe:close()
+        end
+        finish({ code = "timeout", message = method .. " timed out" })
+      end
+    end)
+  end
   pipe:connect(M.socket(), function(cerr)
     if cerr then
       pipe:close()
