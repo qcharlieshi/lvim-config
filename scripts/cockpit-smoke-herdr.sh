@@ -44,6 +44,10 @@ thread_file() { ls "$COCKPIT_INBOX_DIR"/threads/*-"$1".jsonl 2>/dev/null | head 
 nlua() { nvim --headless -u NONE -i NONE --cmd "set rtp^=$NVIM_CFG" -l "$1"; }
 
 # --- server -------------------------------------------------------------------------------
+# a stale server from an aborted run must not be reused
+for s in ckspike ckdead; do herdr --session "$s" server stop >/dev/null 2>&1 || true; done
+sleep 1
+for s in ckspike ckdead; do herdr session delete "$s" >/dev/null 2>&1 || true; done
 env -u TMUX -u TMUX_PANE "${H[@]}" server >"$T/server.log" 2>&1 &
 up() { [[ $("${H[@]}" status server 2>/dev/null) == *"status: running"* ]]; }
 for _ in $(seq 20); do up && break; sleep 0.5; done
@@ -766,7 +770,7 @@ hook16() { # <prompt> <last message> <session id>
   printf '{"type":"user","message":{"content":"%s"}}\n' "$1" >"$T/tr16.jsonl"
   python3 -c 'import json,sys; print(json.dumps({"transcript_path": sys.argv[1], "last_assistant_message": sys.argv[2], "session_id": sys.argv[3], "cwd": "/tmp"}))' \
     "$T/tr16.jsonl" "$2" "$3" |
-    env -u TMUX -u TMUX_PANE HERDR_PANE_ID=w0:p0 COCKPIT_INBOX_DIR="$I16" python3 "$CLI" hook stop
+    env -u TMUX -u TMUX_PANE -u COCKPIT_INBOX_HOOK HERDR_PANE_ID=w0:p0 COCKPIT_INBOX_DIR="$I16" python3 "$CLI" hook stop
 }
 hook16 "hello" "Done." aaaaaaaa11
 [ -z "$(ls "$I16/threads" 2>/dev/null)" ] || fail "status chatter created a thread: $(ls "$I16/threads")"
@@ -781,5 +785,50 @@ hook16 "Inbox reply on thread T1." "ok" cccccccc33
 [ ! -e "$I16/threads/session-cccccccc.jsonl" ] || fail "reply made a stray thread"
 ok "Stop hook: chatter silent, trailing ? posts a question, inbox reply appends to its thread"
 [ "$LAST" -le 16 ] && exit 0
+
+# --- 17: `claude` via herdr — cockpit-spawn.lua + launcher bypass ---------------------------------
+echo "17: claude via herdr"
+P17=$T/projects17 # fresh projects dir: no project holds ~/.config/nvim yet
+spawn17() {
+  TMUX=dummy COCKPIT_PROJECTS_DIR=$P17 nvim --headless -u NONE -i NONE --cmd "set rtp^=$NVIM_CFG" \
+    -l "$NVIM_CFG/scripts/cockpit-spawn.lua" -- "$NVIM_CFG" </dev/null 2>"$T/s17.err"
+}
+read -r N17 PANE17 <<<"$(spawn17)" || true
+[ -n "$N17" ] && [ -n "$PANE17" ] || { cat "$T/s17.err"; fail "cockpit-spawn.lua printed no agent"; }
+J17=$("${H[@]}" agent get "$N17") || fail "$N17 not live"
+WS17=$(jget 'd["result"]["agent"]["workspace_id"]' <<<"$J17")
+"${H[@]}" workspace list | python3 -c '
+import sys, json
+ws = {w["workspace_id"]: w["label"] for w in json.load(sys.stdin)["result"]["workspaces"]}
+assert ws.get(sys.argv[1]) == "ck/nvim", ws
+' "$WS17" || fail "$N17 not in a ck/nvim workspace"
+[ -f "$P17/nvim/project.json" ] || fail "project nvim not created"
+grep -q "\"$N17\"" "$P17/nvim/agents.jsonl" || fail "$N17 not in the nvim registry"
+read -r N17B PANE17B <<<"$(spawn17)" || true
+[ -n "$N17B" ] && [ "$N17B" != "$N17" ] || { cat "$T/s17.err"; fail "second spawn: '$N17B'"; }
+[ "$(ls "$P17")" = "nvim" ] || fail "second run made another project: $(ls "$P17")"
+[ "$(wc -l <"$P17/nvim/agents.jsonl")" -ge 2 ] || fail "second agent not in the nvim registry"
+"${H[@]}" pane close "$PANE17" >/dev/null
+"${H[@]}" pane close "$PANE17B" >/dev/null
+ok "cockpit-spawn.lua starts $N17 then $N17B in ck/nvim; project nvim created once"
+# worktrees resolve to their main repo (temp repo, no herdr)
+R17=$T/r17
+git init -q "$R17" && git -C "$R17" commit -q --allow-empty -m init && git -C "$R17" worktree add -q "$R17/.wt" -b wt17 2>/dev/null
+cat >"$T/t17.lua" <<LUA
+local projects = require("cockpit.projects")
+local a = projects.for_dir("$R17")
+local b = projects.for_dir("$R17/.wt")
+assert(a == "r17" and b == "r17", tostring(a) .. " / " .. tostring(b))
+assert(projects.for_dir("$T") == nil, "non-git dir got a project")
+print("T17 OK")
+LUA
+COCKPIT_PROJECTS_DIR=$P17 nlua "$T/t17.lua" 2>&1 | tee "$T/t17.out" | grep -q "T17 OK" || { cat "$T/t17.out"; fail "for_dir worktree"; }
+ok "for_dir: a worktree maps to its main repo's project; non-git dir -> nil"
+# bypass: plain claude, no herdr session touched
+V17=$(TMUX=dummy COCKPIT_NO_HERDR=1 COCKPIT_HERDR_SESSION=ck17none "$NVIM_CFG/scripts/cockpit-claude" --version 2>&1) || fail "bypass --version failed: $V17"
+[[ $V17 == *"Claude Code"* ]] || fail "bypass printed: $V17"
+[ ! -e ~/.config/herdr/sessions/ck17none ] || fail "bypass touched herdr"
+ok "COCKPIT_NO_HERDR=1 cockpit-claude --version -> $V17 (no herdr)"
+[ "$LAST" -le 17 ] && exit 0
 
 echo "all sections passed"

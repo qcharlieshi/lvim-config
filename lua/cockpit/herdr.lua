@@ -333,9 +333,11 @@ end
 -- Start a Claude agent in a fresh pane cockpit just created; cb(err, name). `rec` carries the
 -- registry fields beyond {name, terminal_id, session} and must include `project` (agent.start takes
 -- no env: env is set when the pane is created). A blocked start (folder trust) keeps the agent,
--- records it, and offers to attach so you can answer the dialog yourself.
-function M.start_in(pane_id, name, args, rec, cb)
+-- records it, and offers to attach so you can answer the dialog yourself (unless
+-- opts.interactive == false, e.g. the `claude` launcher, which attaches anyway).
+function M.start_in(pane_id, name, args, rec, cb, opts)
   cb = cb or function() end
+  local interactive = not (opts and opts.interactive == false)
   -- a fresh pane needs a moment to reach its shell prompt before agent.start accepts it
   vim.defer_fn(function()
     local function started(serr)
@@ -356,12 +358,14 @@ function M.start_in(pane_id, name, args, rec, cb)
         end
       end
       M.reconcile()
-      if serr and serr.code == "agent_not_ready" then
+      if serr and serr.code == "agent_not_ready" and interactive then
         vim.ui.select({ "Attach now", "Later" }, { prompt = name .. " is blocked at startup (likely folder trust)" }, function(choice)
           if choice == "Attach now" then
             M.attach(name)
           end
         end)
+      elseif serr and serr.code == "agent_not_ready" then
+        vim.notify("cockpit: " .. name .. " is blocked at startup", vim.log.levels.WARN)
       elseif serr then
         vim.notify("cockpit: " .. name .. " failed to start — " .. serr.message, vim.log.levels.ERROR)
       else
@@ -374,19 +378,22 @@ function M.start_in(pane_id, name, args, rec, cb)
       if serr then
         return started(serr)
       end
-      M.request("agent.wait", { target = name, ["until"] = { "idle", "blocked" }, timeout_ms = 60000 }, function(werr, res)
+      local wait = { target = name, ["until"] = { "idle", "blocked" }, timeout_ms = 60000 }
+      M.request("agent.wait", wait, function(werr, res)
         local status = res and res.agent and res.agent.agent_status
         if not werr and status == "blocked" then
           werr = { code = "agent_not_ready", message = name .. " is blocked during startup" }
         end
         started(werr)
-      end)
+      end, { timeout_ms = 75000 })
     end)
   end, 1500)
 end
 
--- Start a Claude agent in `project`; cb(err, name).
-function M.spawn(project, prompt, cb)
+-- Start a Claude agent in `project`; cb(err, name, pane_id). opts.args: extra claude args (appended);
+-- opts.interactive = false: no attach prompt when blocked at startup (cb still gets the name).
+function M.spawn(project, prompt, cb, opts)
+  opts = opts or {}
   cb = cb or function() end
   if not M.ensure() then
     return cb({ code = "no_server", message = "herdr server not running" })
@@ -405,12 +412,13 @@ function M.spawn(project, prompt, cb)
   for i = 2, #p.repos do
     vim.list_extend(args, { "--add-dir", p.repos[i] })
   end
+  vim.list_extend(args, opts.args or {})
   M.start_in(pane_id, free_name(project), args, { project = project }, function(serr, name)
     if not serr and prompt and prompt ~= "" then
       M.request("agent.prompt", { target = name, text = prompt }, function() end)
     end
-    cb(serr, name)
-  end)
+    cb(serr, name, pane_id)
+  end, { interactive = opts.interactive })
 end
 
 -- Hard kill: close the agent's own pane. Callers confirm first. Returns err or nil.

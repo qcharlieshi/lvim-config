@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# `claude` through herdr: start the agent headless in herdr (this repo's cockpit project) and attach
+# to it in this tmux pane. Looks like plain claude, but shows in the cockpit rail, can be forked and
+# survives the pane. Every failure falls back to plain claude after one warning line.
+# Bypass: COCKPIT_NO_HERDR=1, not in tmux, already inside herdr, -p/--print/-v/--version/-h/--help,
+# or a subcommand / positional prompt (first arg not starting with -).
+NVIM_CFG=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+
+plain() { exec claude "$@"; } # a script never sees the zsh claude() function: no recursion
+warn() { printf 'cockpit-claude: %s — running plain claude\n' "$1" >&2; }
+
+[ -z "${TMUX:-}" ] || [ "${HERDR_ENV:-}" = 1 ] || [ "${COCKPIT_NO_HERDR:-}" = 1 ] && plain "$@"
+[ $# -gt 0 ] && [ "${1#-}" = "$1" ] && plain "$@"
+for a in "$@"; do
+  case $a in -p | --print | -v | --version | -h | --help) plain "$@" ;; esac
+done
+
+H=(herdr)
+[ -n "${COCKPIT_HERDR_SESSION:-}" ] && H+=(--session "$COCKPIT_HERDR_SESSION")
+
+errf=$(mktemp "${TMPDIR:-/tmp}/cockpit-claude.XXXXXX")
+out=$(nvim --headless -u NONE -i NONE --cmd "set rtp^=$NVIM_CFG" \
+  -l "$NVIM_CFG/scripts/cockpit-spawn.lua" -- "$PWD" "$@" 2>"$errf" </dev/null)
+rc=$?
+reason=$(grep -m1 . "$errf")
+rm -f "$errf"
+read -r name pane <<<"$out"
+if [ $rc -ne 0 ] || [ -z "$name" ] || [ -z "$pane" ]; then
+  warn "${reason:-spawn failed}"
+  plain "$@"
+fi
+
+live() { "${H[@]}" agent get "$name" >/dev/null 2>&1; }
+
+# attach doesn't return when Claude exits (the pane's shell lives on): once the agent has been gone
+# for 3 s, close its pane, which ends the attach — no empty shell panes pile up
+(
+  misses=0
+  while [ $misses -lt 3 ]; do
+    sleep 1
+    if live; then misses=0; else misses=$((misses + 1)); fi
+  done
+  "${H[@]}" pane close "$pane" >/dev/null 2>&1
+) </dev/null >/dev/null 2>&1 &
+watcher=$!
+
+"${H[@]}" agent attach "$name"
+arc=$?
+kill "$watcher" 2>/dev/null
+wait "$watcher" 2>/dev/null
+
+if live; then
+  # detached (or attach failed): the agent keeps running in herdr
+  [ $arc -ne 0 ] && printf 'cockpit-claude: attach failed — %s still running (herdr agent attach %s)\n' "$name" "$name" >&2
+  exit $arc
+fi
+"${H[@]}" pane close "$pane" >/dev/null 2>&1 # Claude exited: drop its pane if the watcher hasn't
+exit 0

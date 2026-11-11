@@ -149,6 +149,50 @@ function M.new(cb)
   end)
 end
 
+local function git(dir, ...)
+  local r = vim.system({ "git", "-C", dir, "rev-parse", ... }, { text = true }):wait()
+  return r.code == 0 and vim.trim(r.stdout) or nil
+end
+
+local function real(p)
+  return vim.uv.fs_realpath(p) or p
+end
+
+-- The project for the repo containing `dir` (a worktree counts as its main repo); creates a
+-- one-repo project named after the repo when none has it. Returns the name, or nil outside git.
+function M.for_dir(dir)
+  local top = git(dir, "--show-toplevel")
+  if not top then
+    return nil
+  end
+  local common = git(dir, "--path-format=absolute", "--git-common-dir")
+  local repo = (common and vim.fs.basename(common) == ".git") and vim.fs.dirname(common) or top
+  local want = { [real(top)] = true, [real(repo)] = true }
+  local any
+  for _, p in ipairs(M.list()) do
+    for i, r in ipairs(p.repos) do
+      if want[real(r)] then
+        if i == 1 then
+          return p.name -- primary match wins
+        end
+        any = any or p.name
+      end
+    end
+  end
+  if any then
+    return any
+  end
+  local base = vim.fs.basename(repo):lower():gsub("[^a-z0-9_-]", "-"):gsub("^[^a-z]+", "")
+  base = (base == "" and "repo" or base):sub(1, 28)
+  local name, n = base, 1
+  while M.get(name) do -- never clobber an unrelated project with the same basename
+    n = n + 1
+    name = base:sub(1, 28 - #tostring(n) - 1) .. "-" .. n
+  end
+  M.save({ name = name, repos = { repo } })
+  return name
+end
+
 function M.edit(name)
   local function open(n)
     vim.cmd.edit(vim.fn.fnameescape(file(n)))
