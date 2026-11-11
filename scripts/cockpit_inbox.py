@@ -35,6 +35,7 @@ import json
 import os
 import re
 import secrets
+import socket
 import subprocess
 import sys
 import time
@@ -98,6 +99,9 @@ def git(*args, cwd=None, ok_codes=(0,)):
 
 
 def project_of(cwd):
+    # Agents spawned by cockpit carry their project in the pane env (herdr workspace.create/pane.split env)
+    if os.environ.get("COCKPIT_PROJECT"):
+        return os.environ["COCKPIT_PROJECT"]
     # Common dir, not toplevel: every worktree of a repo lands in the same project
     try:
         common = git("rev-parse", "--path-format=absolute", "--git-common-dir", cwd=cwd).strip()
@@ -106,10 +110,51 @@ def project_of(cwd):
         return Path(cwd).name
 
 
+def herdr_socket():
+    if os.environ.get("HERDR_SOCKET_PATH"):
+        return os.environ["HERDR_SOCKET_PATH"]
+    base = Path("~/.config/herdr").expanduser()
+    name = os.environ.get("COCKPIT_HERDR_SESSION")
+    return str(base / "sessions" / name / "herdr.sock" if name else base / "herdr.sock")
+
+
+def herdr_call(method, params):
+    """One request over herdr's NDJSON socket API; the result dict, or None on any failure."""
+    try:
+        with socket.socket(socket.AF_UNIX) as s:
+            s.settimeout(2)
+            s.connect(herdr_socket())
+            s.sendall((json.dumps({"id": "ck", "method": method, "params": params}) + "\n").encode())
+            buf = b""
+            while b"\n" not in buf:
+                chunk = s.recv(65536)
+                if not chunk:
+                    return None
+                buf += chunk
+        return json.loads(buf.split(b"\n", 1)[0]).get("result")
+    except (OSError, ValueError):
+        return None
+
+
+def herdr_identity():
+    """This process's herdr pane, resolved by explicit pane id (never --current: herdr #2900)."""
+    pane_id = os.environ.get("HERDR_PANE_ID")
+    if os.environ.get("HERDR_ENV") != "1" or not pane_id:
+        return None
+    pane = (herdr_call("pane.get", {"pane_id": pane_id}) or {}).get("pane")
+    if not pane:
+        return None
+    ident = {k: pane.get(k) for k in ("pane_id", "workspace_id", "terminal_id")}
+    agents = (herdr_call("agent.list", {}) or {}).get("agents") or []
+    name = next((a.get("name") for a in agents if a.get("pane_id") == pane_id and a.get("name")), None)
+    return ident | ({"name": name} if name else {})
+
+
 def session():
     return {
         "agent": os.environ.get("COCKPIT_AGENT") or "claude",
         "tmux_pane": os.environ.get("TMUX_PANE"),
+        "herdr": herdr_identity(),
         "cwd": os.getcwd(),
         "pid": os.getppid(),
     }
@@ -388,10 +433,12 @@ def hook_stop(payload):
       edited files but posted nothing -> block, telling the agent how to post them for review
       anything else -> allow, posting the last message as an FYI (a trailing '?' makes it a question)
     """
-    pane = os.environ.get("TMUX_PANE")
+    tmux_pane = os.environ.get("TMUX_PANE")
+    # herdr panes are headless and herdr exposes no "client attached" signal: always unwatched
+    pane = tmux_pane or os.environ.get("HERDR_PANE_ID")
     if not pane or os.environ.get("COCKPIT_INBOX_HOOK") == "0" or payload.get("stop_hook_active"):
         return None
-    if watching(pane):
+    if tmux_pane and watching(tmux_pane):
         return None
     posted, edited, reply_thread = turn_activity(payload.get("transcript_path"))
     if posted:
