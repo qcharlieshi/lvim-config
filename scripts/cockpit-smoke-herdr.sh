@@ -67,4 +67,31 @@ assert e["project"] == "nvim", e["project"]
 ok "no COCKPIT_PROJECT -> project_of(cwd)=nvim, herdr block still recorded"
 [ "$LAST" -le 1 ] && exit 0
 
+# --- 2: nvim herdr client — live agent cache + ensure() --------------------------------------
+echo "2: herdr.lua agent cache"
+P2=$("${H[@]}" pane split "$P" --direction right --cwd "$NVIM_CFG" --no-focus | jget 'd["result"]["pane"]["pane_id"]')
+sleep 1
+"${H[@]}" agent start smoke-1 --kind claude --pane "$P2" --timeout 60000 >/dev/null || fail "agent start smoke-1"
+cat >"$T/t2.lua" <<'LUA'
+local h = require("cockpit.herdr")
+local fired = 0
+vim.api.nvim_create_autocmd("User", { pattern = "CockpitAgents", callback = function() fired = fired + 1 end })
+h.start()
+assert(vim.wait(5000, function() return h.agents()["smoke-1"] ~= nil end), "smoke-1 never reached the cache")
+local a = h.agents()["smoke-1"]
+assert(a.status == "idle", "status " .. tostring(a.status))
+assert(a.terminal_id:match("^term_"), "terminal_id " .. tostring(a.terminal_id))
+assert(h.by_terminal(a.terminal_id).name == "smoke-1", "by_terminal")
+assert(fired >= 1, "CockpitAgents never fired")
+h.stop()
+-- Review Focus 1: ensure() starts a server that is not running
+vim.env.COCKPIT_HERDR_SESSION = "ckdead"
+assert(h.ensure() == true, "ensure() did not start ckdead")
+print("T2 OK")
+LUA
+nlua "$T/t2.lua" 2>&1 | tee "$T/t2.out" | grep -q "T2 OK" || { cat "$T/t2.out"; fail "section 2"; }
+"${H[@]}" pane close "$P2" >/dev/null # frees the name smoke-1 for section 4
+ok "cache sees smoke-1 idle with terminal_id; CockpitAgents fired; ensure() starts a dead server"
+[ "$LAST" -le 2 ] && exit 0
+
 echo "all sections passed"
