@@ -370,4 +370,48 @@ nlua "$T/t9.lua" 2>&1 | tee "$T/t9.out" | grep -q "T9 OK" || { cat "$T/t9.out"; 
 ok "spawn records {terminal_id, session} in agents.jsonl; respawn gets a fresh name; thread.owner = first message session"
 [ "$LAST" -le 9 ] && exit 0
 
+# --- 10: rail tree model (fixtures only, no herdr) ----------------------------------------------------
+echo "10: tree model"
+cat >"$T/t10.lua" <<'LUA'
+local tree = require("cockpit.inbox.tree")
+local function ag(name, tid, status, project)
+  return { name = name, terminal_id = tid, status = status, project = project }
+end
+local agents = { A = ag("A", "tA", "idle", "p"), F = ag("F", "tF", "idle", "p"), G = ag("G", "tG", "idle", "p") }
+local registry = { p = {
+  tA = { name = "A", project = "p", terminal_id = "tA", ts = 1 },
+  tF = { name = "F", project = "p", terminal_id = "tF", parent_terminal = "tA", parent_name = "A", fork = "continue", ts = 2 },
+  tD = { name = "D", project = "p", terminal_id = "tD", dead = true, ts = 0 },
+  tG = { name = "G", project = "p", terminal_id = "tG", parent_terminal = "tD", parent_name = "D", fork = "continue", ts = 3 },
+}, q = {} }
+local function th(id, owner, status, archived)
+  return { id = id, title = id, status = status, archived = archived, last_ts = 1,
+    owner = owner and { herdr = { terminal_id = owner } } or nil }
+end
+local threads = { th("t1", "tA", "needs_you"), th("t2", "tF", "read"), th("t3", "tD", "read", true), th("t4", nil, "read") }
+local function keys(nodes)
+  return vim.tbl_map(function(n) return n.kind == "thread" and n.thread.id or n.key end, nodes)
+end
+local function run(show)
+  return tree.build({ show_archived = show, threads = threads, agents = agents, registry = registry,
+    projects = { { name = "p" }, { name = "q" } } })
+end
+local nodes = run(false)
+assert(vim.deep_equal(keys(nodes), { "header", "p:p", "a:tA", "a:tF", "t2", "t1", "a:tG", "past:p", "a:tD", "p:q", "unassigned", "t4" }),
+  vim.inspect(keys(nodes)))
+local by = {}
+for _, n in ipairs(nodes) do by[n.key] = n end
+assert(by["p:p"].counts.needs_you == 1, vim.inspect(by["p:p"].counts))
+assert(by["a:tG"].orphan_of == "D" and by["a:tG"].depth == 1)
+assert(by["a:tF"].fork == "continue" and by["a:tF"].depth == 2 and by["a:tF"].live)
+assert(by["a:tD"].live == false and by["a:tD"].depth == 2)
+assert(by["p:q"] and #by["p:q"].children == 0)
+assert(not vim.tbl_contains(keys(nodes), "t3"), "t3 shown without show_archived")
+assert(vim.tbl_contains(keys(run(true)), "t3"), "t3 missing with show_archived")
+print("T10 OK")
+LUA
+nlua "$T/t10.lua" 2>&1 | tee "$T/t10.out" | grep -q "T10 OK" || { cat "$T/t10.out"; fail "section 10"; }
+ok "tree.build orders project > agent > forks > threads, orphans, past, unassigned; archived gated"
+[ "$LAST" -le 10 ] && exit 0
+
 echo "all sections passed"
