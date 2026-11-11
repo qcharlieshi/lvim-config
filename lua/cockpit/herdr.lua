@@ -274,6 +274,8 @@ local function free_name(project)
   end
 end
 
+M.free_name = free_name
+
 -- The pane to start an agent in: create the project's ck/ workspace and use its fresh root pane,
 -- or split a new pane into the existing one. Never reuses a pane cockpit didn't just create.
 -- Returns err, pane_id.
@@ -304,28 +306,12 @@ local function project_pane(p, env)
   return err, res and res.pane.pane_id
 end
 
--- Start a Claude agent in `project`; cb(err, name). A blocked start (folder trust) keeps the
--- agent and offers to attach so you can answer the dialog yourself.
-function M.spawn(project, prompt, cb)
+-- Start a Claude agent in a fresh pane cockpit just created; cb(err, name). `rec` carries the
+-- registry fields beyond {name, terminal_id, session} and must include `project` (agent.start takes
+-- no env: env is set when the pane is created). A blocked start (folder trust) keeps the agent,
+-- records it, and offers to attach so you can answer the dialog yourself.
+function M.start_in(pane_id, name, args, rec, cb)
   cb = cb or function() end
-  if not M.ensure() then
-    return cb({ code = "no_server", message = "herdr server not running" })
-  end
-  local p = require("cockpit.projects").get(project)
-  if not p then
-    return cb({ code = "no_project", message = "no project " .. project })
-  end
-  local env = { COCKPIT_PROJECT = project, COCKPIT_INBOX_DIR = vim.env.COCKPIT_INBOX_DIR }
-  local err, pane_id = project_pane(p, env)
-  if err then
-    vim.notify("cockpit: spawn failed — " .. err.message, vim.log.levels.ERROR)
-    return cb(err)
-  end
-  local name = free_name(project)
-  local args = {}
-  for i = 2, #p.repos do
-    vim.list_extend(args, { "--add-dir", p.repos[i] })
-  end
   -- a fresh pane needs a moment to reach its shell prompt before agent.start accepts it
   vim.defer_fn(function()
     local function started(serr)
@@ -334,12 +320,11 @@ function M.spawn(project, prompt, cb)
         local _, got = M.request("agent.get", { target = name })
         local a = got and got.agent
         if a and a.terminal_id then
-          require("cockpit.registry").append(project, {
+          require("cockpit.registry").append(rec.project, vim.tbl_extend("force", rec, {
             name = name,
-            project = project,
             terminal_id = a.terminal_id,
             session = a.agent_session and a.agent_session.value or nil,
-          })
+          }))
         end
       end
       M.reconcile()
@@ -351,10 +336,7 @@ function M.spawn(project, prompt, cb)
         end)
       elseif serr then
         vim.notify("cockpit: " .. name .. " failed to start — " .. serr.message, vim.log.levels.ERROR)
-      elseif prompt and prompt ~= "" then
-        M.request("agent.prompt", { target = name, text = prompt }, function() end)
-      end
-      if not serr then
+      else
         vim.notify("cockpit: " .. name .. " ready")
       end
       cb(serr, name)
@@ -373,6 +355,34 @@ function M.spawn(project, prompt, cb)
       end)
     end)
   end, 1500)
+end
+
+-- Start a Claude agent in `project`; cb(err, name).
+function M.spawn(project, prompt, cb)
+  cb = cb or function() end
+  if not M.ensure() then
+    return cb({ code = "no_server", message = "herdr server not running" })
+  end
+  local p = require("cockpit.projects").get(project)
+  if not p then
+    return cb({ code = "no_project", message = "no project " .. project })
+  end
+  local env = { COCKPIT_PROJECT = project, COCKPIT_INBOX_DIR = vim.env.COCKPIT_INBOX_DIR }
+  local err, pane_id = project_pane(p, env)
+  if err then
+    vim.notify("cockpit: spawn failed — " .. err.message, vim.log.levels.ERROR)
+    return cb(err)
+  end
+  local args = {}
+  for i = 2, #p.repos do
+    vim.list_extend(args, { "--add-dir", p.repos[i] })
+  end
+  M.start_in(pane_id, free_name(project), args, { project = project }, function(serr, name)
+    if not serr and prompt and prompt ~= "" then
+      M.request("agent.prompt", { target = name, text = prompt }, function() end)
+    end
+    cb(serr, name)
+  end)
 end
 
 -- Hard kill: close the agent's own pane. Callers confirm first. Returns err or nil.

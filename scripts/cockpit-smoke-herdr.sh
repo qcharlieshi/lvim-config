@@ -18,6 +18,17 @@ cleanup() {
   sleep 1
   herdr session delete ckspike >/dev/null 2>&1 || true
   herdr session delete ckdead >/dev/null 2>&1 || true
+  # section 12 forks smoke-* agents into worktrees of the real repos: leave no worktree or branch behind
+  for repo in "$NVIM_CFG" ~/dev/genzed; do
+    for wt in "$repo"/.worktrees/fork-smoke-*; do
+      if [ -e "$wt" ]; then git -C "$repo" worktree remove --force "$wt" >/dev/null 2>&1 || true; fi
+    done
+    git -C "$repo" worktree prune >/dev/null 2>&1 || true
+    git -C "$repo" for-each-ref --format='%(refname:short)' 'refs/heads/fork/smoke-*' | while read -r b; do
+      git -C "$repo" branch -D "$b" >/dev/null 2>&1 || true
+    done
+    rmdir "$repo/.worktrees" 2>/dev/null || true
+  done
   rm -rf "$T"
 }
 trap cleanup EXIT
@@ -122,7 +133,7 @@ local h, projects = require("cockpit.herdr"), require("cockpit.projects")
 local function await(fn, ms) -- run fn(cb) and wait for cb's args
   local got
   fn(function(...) got = { ... } end)
-  assert(vim.wait(ms or 90000, function() return got ~= nil end, 50), "timed out")
+  assert(vim.wait(ms or 180000, function() return got ~= nil end, 50), "timed out")
   return unpack(got)
 end
 local function gone(name) return vim.wait(10000, function() return h.agents()[name] == nil end, 100) end
@@ -136,8 +147,8 @@ assert(name == "smoke-1", "name " .. tostring(name))
 assert(vim.wait(10000, function() local a = h.agents()[name]; return a and a.status == "idle" end), "smoke-1 not idle: " .. vim.inspect(h.agents()))
 assert(h.agents()[name].project == "smoke", "project " .. tostring(h.agents()[name].project))
 local perr = await(function(cb)
-  h.request("agent.prompt", { target = name, text = "Run this bash command and reply with only its output: echo PROJ=$COCKPIT_PROJECT", wait = { timeout_ms = 90000 } }, cb)
-end, 100000)
+  h.request("agent.prompt", { target = name, text = "Run this bash command and reply with only its output: echo PROJ=$COCKPIT_PROJECT", wait = { timeout_ms = 180000 } }, cb)
+end, 190000)
 assert(not perr, vim.inspect(perr))
 local _, read = h.request("agent.read", { target = name, source = "recent_unwrapped", lines = 60 })
 assert(read and vim.inspect(read):find("PROJ=smoke", 1, true), "COCKPIT_PROJECT not in pane env")
@@ -184,7 +195,7 @@ local h, store = require("cockpit.herdr"), require("cockpit.inbox.store")
 local function await(fn, ms)
   local got
   fn(function(...) got = { ... } end)
-  assert(vim.wait(ms or 90000, function() return got ~= nil end, 50), "timed out")
+  assert(vim.wait(ms or 180000, function() return got ~= nil end, 50), "timed out")
   return unpack(got)
 end
 h.start(); h.watch(true)
@@ -192,8 +203,8 @@ local err, name = await(function(cb) h.spawn("smoke", nil, cb) end)
 assert(not err, vim.inspect(err))
 local cmd = ("python3 %s post --title s5 --text hi"):format(vim.env.CLI)
 local perr = await(function(cb)
-  h.request("agent.prompt", { target = name, text = "Run exactly this bash command, then reply done: " .. cmd, wait = { timeout_ms = 90000 } }, cb)
-end, 100000)
+  h.request("agent.prompt", { target = name, text = "Run exactly this bash command, then reply done: " .. cmd, wait = { timeout_ms = 180000 } }, cb)
+end, 190000)
 assert(not perr, vim.inspect(perr))
 local f = vim.fn.glob(store.path("threads", "*-s5.jsonl"), false, true)[1]
 assert(f, "agent did not post s5")
@@ -201,7 +212,7 @@ local t = store.thread(vim.fn.fnamemodify(f, ":t:r"))
 assert(t.session.herdr and t.session.herdr.terminal_id, "s5 has no herdr identity")
 local how = store.deliver(t)
 assert(how:find("^delivered"), "deliver returned: " .. how)
-assert(vim.wait(60000, function()
+assert(vim.wait(180000, function()
   local _, r = h.request("agent.read", { target = name, source = "recent_unwrapped", lines = 80 })
   return r and vim.inspect(r):find("Inbox reply on thread", 1, true) ~= nil
 end, 1000), "reply never reached the agent")
@@ -225,15 +236,15 @@ local ui = require("cockpit.inbox.ui")
 local function await(fn, ms)
   local got
   fn(function(...) got = { ... } end)
-  assert(vim.wait(ms or 90000, function() return got ~= nil end, 50), "timed out")
+  assert(vim.wait(ms or 180000, function() return got ~= nil end, 50), "timed out")
   return unpack(got)
 end
 local err, name = await(function(cb) h.spawn("smoke", nil, cb) end)
 assert(not err, vim.inspect(err))
 local cmd = ("python3 %s post --title s6 --text hi"):format(vim.env.CLI)
 await(function(cb)
-  h.request("agent.prompt", { target = name, text = "Run exactly this bash command, then reply done: " .. cmd, wait = { timeout_ms = 90000 } }, cb)
-end, 100000)
+  h.request("agent.prompt", { target = name, text = "Run exactly this bash command, then reply done: " .. cmd, wait = { timeout_ms = 180000 } }, cb)
+end, 190000)
 assert(vim.fn.glob(store.path("threads", "*-s6.jsonl")) ~= "", "agent did not post s6")
 ui.open()
 local rail = vim.fn.bufnr("cockpit://rail")
@@ -275,7 +286,7 @@ local ui = require("cockpit.inbox.ui")
 local function await(fn, ms)
   local got
   fn(function(...) got = { ... } end)
-  assert(vim.wait(ms or 90000, function() return got ~= nil end, 50), "timed out")
+  assert(vim.wait(ms or 180000, function() return got ~= nil end, 50), "timed out")
   return unpack(got)
 end
 -- fix 1: the 3 s reconcile stays on while the cockpit is open (re-open / select), off after close
@@ -339,7 +350,7 @@ local h, registry, store = require("cockpit.herdr"), require("cockpit.registry")
 local function await(fn, ms)
   local got
   fn(function(...) got = { ... } end)
-  assert(vim.wait(ms or 90000, function() return got ~= nil end, 50), "timed out")
+  assert(vim.wait(ms or 180000, function() return got ~= nil end, 50), "timed out")
   return unpack(got)
 end
 h.start(); h.watch(true)
@@ -426,7 +437,7 @@ local ui, rail = require("cockpit.inbox.ui"), require("cockpit.inbox.rail")
 local function await(fn, ms)
   local got
   fn(function(...) got = { ... } end)
-  assert(vim.wait(ms or 90000, function() return got ~= nil end, 50), "timed out")
+  assert(vim.wait(ms or 180000, function() return got ~= nil end, 50), "timed out")
   return unpack(got)
 end
 local function lines(buf) return vim.api.nvim_buf_get_lines(buf, 0, -1, false) end
@@ -442,8 +453,8 @@ assert(not err, vim.inspect(err))
 local tid = h.agents()[name].terminal_id
 local cmd = ("python3 %s post --title s11 --text hi"):format(vim.env.CLI)
 await(function(cb)
-  h.request("agent.prompt", { target = name, text = "Run exactly this bash command, then reply done: " .. cmd, wait = { timeout_ms = 90000 } }, cb)
-end, 100000)
+  h.request("agent.prompt", { target = name, text = "Run exactly this bash command, then reply done: " .. cmd, wait = { timeout_ms = 180000 } }, cb)
+end, 190000)
 local f = vim.fn.glob(store.path("threads", "*-s11.jsonl"), false, true)[1]
 assert(f, "agent did not post s11")
 local sid = vim.fn.fnamemodify(f, ":t:r")
@@ -493,5 +504,83 @@ LUA
 CLI=$CLI NVIM_CFG=$NVIM_CFG nlua "$T/t11.lua" 2>&1 | tee "$T/t11.out" | grep -q "T11 OK" || { cat "$T/t11.out"; fail "section 11"; }
 ok "rail: empty project row; smoke > agent > s11 one line each; folds + cursor survive refresh; kill archives + registry dead; X on a past agent archives without herdr.kill"
 [ "$LAST" -le 11 ] && exit 0
+
+# --- 12: forks — continue + worktree, kill cleanup -----------------------------------------------------
+echo "12: forks"
+cat >"$T/t12.lua" <<'LUA'
+local h, registry = require("cockpit.herdr"), require("cockpit.registry")
+require("cockpit.inbox").setup()
+local rail, forks = require("cockpit.inbox.rail"), require("cockpit.forks")
+local function await(fn, ms)
+  local got
+  fn(function(...) got = { ... } end)
+  assert(vim.wait(ms or 180000, function() return got ~= nil end, 50), "timed out")
+  return unpack(got)
+end
+local nv = vim.env.NVIM_CFG
+local function has_branch(b)
+  return vim.trim(vim.system({ "git", "-C", nv, "branch", "--list", b }, { text = true }):wait().stdout) ~= ""
+end
+local function live(name)
+  assert(vim.wait(10000, function() return h.agents()[name] ~= nil end, 100), name .. " not live")
+  return h.agents()[name]
+end
+vim.fn.confirm = function() return 1 end
+local err, pname = await(function(cb) h.spawn("smoke", nil, cb) end)
+assert(not err, vim.inspect(err))
+local parent = live(pname)
+-- Claude writes no transcript before the first message: an unprompted session cannot be resumed
+local nerr = await(function(cb) forks.continue(parent, nil, cb) end, 5000)
+assert(nerr and nerr.code == "no_session", "forked an unprompted parent: " .. vim.inspect(nerr))
+local perr = await(function(cb)
+  h.request("agent.prompt", { target = pname, text = "Reply with only: hi", wait = { timeout_ms = 180000 } }, cb)
+end, 190000)
+assert(not perr, vim.inspect(perr))
+local psession = registry.all("smoke")[parent.terminal_id].session
+-- 1. continue fork: live child in the parent's workspace, own session, linked to the parent
+local cerr, cname = await(function(cb) forks.continue(parent, nil, cb) end)
+assert(not cerr, vim.inspect(cerr))
+local child = live(cname)
+local crec = registry.all("smoke")[child.terminal_id]
+assert(crec, "no registry rec for " .. cname .. ": " .. vim.inspect(registry.all("smoke")) .. vim.inspect(child))
+assert(crec.fork == "continue" and crec.parent_terminal == parent.terminal_id and crec.parent_name == pname, vim.inspect(crec))
+assert(type(crec.session) == "string" and crec.session ~= psession, "fork session " .. tostring(crec.session) .. " vs parent " .. tostring(psession))
+assert(child.workspace_id == parent.workspace_id, "fork not in the parent's workspace")
+assert(h.agents()[pname], "parent died")
+rail.kill_agent(child)
+-- 2. worktree fork: branch fork/<parent>-1 + worktree dir
+local branch, wt = "fork/" .. pname .. "-1", nv .. "/.worktrees/fork-" .. pname .. "-1"
+local werr, wname = await(function(cb) forks.worktree(parent, nil, cb) end)
+assert(not werr, vim.inspect(werr))
+assert(has_branch(branch), branch .. " missing")
+assert(vim.fn.isdirectory(wt) == 1, wt .. " missing")
+local wa = live(wname)
+local wrec = registry.all("smoke")[wa.terminal_id]
+assert(wrec.fork == "worktree" and #wrec.worktrees == 2 and wrec.worktrees[1].path == wt, vim.inspect(wrec))
+assert(type(wrec.session) == "string" and wrec.session ~= psession, "worktree fork session " .. tostring(wrec.session))
+assert(vim.fn.resolve(wa.cwd) == vim.fn.resolve(wt), "fork cwd " .. tostring(wa.cwd))
+-- 3. killed unchanged: worktree + branch removed silently
+vim.ui.select = function(_, opts) error("asked: " .. opts.prompt) end
+rail.kill_agent(wa)
+assert(not has_branch(branch), branch .. " still exists")
+assert(vim.fn.isdirectory(wt) == 0, wt .. " still exists")
+-- 4. Review Focus 4: a fork with a commit → asked; Keep branch keeps it, removes the clean worktree
+local w2err, w2name = await(function(cb) forks.worktree(parent, nil, cb) end)
+assert(not w2err, vim.inspect(w2err))
+local w2 = live(w2name)
+local c = vim.system({ "git", "-C", wt, "commit", "--allow-empty", "-m", "x" }, { text = true }):wait()
+assert(c.code == 0, c.stderr)
+local asked
+vim.ui.select = function(items, opts, cb) asked = opts.prompt; cb("Keep branch") end
+rail.kill_agent(w2)
+assert(asked and asked:find(branch, 1, true) and asked:find("1 commit", 1, true), "prompt: " .. tostring(asked))
+assert(has_branch(branch), "kept branch deleted")
+assert(vim.fn.isdirectory(wt) == 0, "clean worktree not removed")
+h.kill(pname)
+print("T12 OK")
+LUA
+NVIM_CFG=$NVIM_CFG nlua "$T/t12.lua" 2>&1 | tee "$T/t12.out" | grep -q "T12 OK" || { cat "$T/t12.out"; fail "section 12"; }
+ok "continue fork: own session, parent link, parent stays live; worktree fork: branch + worktree, clean kill removes both, kept branch survives a commit"
+[ "$LAST" -le 12 ] && exit 0
 
 echo "all sections passed"

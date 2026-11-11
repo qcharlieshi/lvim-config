@@ -526,11 +526,20 @@ function M.attach(buf)
     open(buf, cursor_node(buf))
   end, "Open")
   map(buf, "X", with_agent(M.kill_agent), "Kill agent")
-  local function forks()
-    vim.notify("cockpit: forks: not yet")
+  local function fork(kind)
+    return function(a)
+      vim.ui.input({ prompt = "Fork prompt (optional): " }, function(text)
+        if text == nil then
+          return -- cancelled
+        end
+        require("cockpit.forks")[kind](a.agent, text, function()
+          ui().refresh()
+        end)
+      end)
+    end
   end
-  map(buf, "f", with_agent(forks), "Fork agent (continue)")
-  map(buf, "F", with_agent(forks), "Fork agent (worktree)")
+  map(buf, "f", with_agent(fork("continue"), true), "Fork agent (continue)")
+  map(buf, "F", with_agent(fork("worktree"), true), "Fork agent (worktree)")
   map(buf, "i", with_agent(function(a)
     herdr.interrupt(a.agent.target)
   end, true), "Interrupt agent")
