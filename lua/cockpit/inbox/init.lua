@@ -54,6 +54,25 @@ function M.setup()
   end
   vim.api.nvim_create_user_command("Cockpit", open, { nargs = "?", desc = "Cockpit (optional run/thread id)" })
   vim.api.nvim_create_user_command("Inbox", open, { nargs = "?", desc = "Cockpit (alias)" })
+  vim.api.nvim_create_user_command("CockpitProject", function(o)
+    local projects = require("cockpit.projects")
+    if o.fargs[1] == "edit" then
+      projects.edit(o.fargs[2])
+    else
+      projects.new()
+    end
+  end, {
+    nargs = "*",
+    desc = "Cockpit project: new | edit [name]",
+    complete = function(_, line)
+      if line:match("edit%s+%S*$") then
+        return vim.tbl_map(function(p)
+          return p.name
+        end, require("cockpit.projects").list())
+      end
+      return { "new", "edit" }
+    end,
+  })
   vim.api.nvim_create_user_command("InboxBoard", function()
     ui().board()
   end, { desc = "Cockpit board" })

@@ -94,4 +94,22 @@ nlua "$T/t2.lua" 2>&1 | tee "$T/t2.out" | grep -q "T2 OK" || { cat "$T/t2.out"; 
 ok "cache sees smoke-1 idle with terminal_id; CockpitAgents fired; ensure() starts a dead server"
 [ "$LAST" -le 2 ] && exit 0
 
+# --- 3: project definitions ----------------------------------------------------------------
+echo "3: projects"
+cat >"$T/t3.lua" <<'LUA'
+local projects = require("cockpit.projects")
+local picks = { vim.fn.expand("~/.config/nvim"), vim.fn.expand("~/dev/genzed"), "✓ done" }
+vim.ui.input = function(_, cb) cb("smoke") end
+vim.ui.select = function(_, _, cb) cb(table.remove(picks, 1)) end
+projects.new()
+local p = assert(projects.get("smoke"), "project smoke missing")
+assert(vim.deep_equal(p.repos, { vim.fn.expand("~/.config/nvim"), vim.fn.expand("~/dev/genzed") }), vim.inspect(p.repos))
+assert(vim.fn.filereadable(vim.env.COCKPIT_PROJECTS_DIR .. "/smoke.json") == 1, "smoke.json not written")
+assert(#projects.list() == 1 and projects.list()[1].name == "smoke", "list")
+print("T3 OK")
+LUA
+nlua "$T/t3.lua" 2>&1 | tee "$T/t3.out" | grep -q "T3 OK" || { cat "$T/t3.out"; fail "section 3"; }
+ok "projects.new() writes smoke.json with primary + extra repo"
+[ "$LAST" -le 3 ] && exit 0
+
 echo "all sections passed"
