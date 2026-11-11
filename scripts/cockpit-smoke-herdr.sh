@@ -473,10 +473,25 @@ rail.kill_agent(rail.node(buf, ar))
 assert(store.thread(sid).archived, "s11 not archived")
 assert(registry.all("smoke")[tid].dead == true, "registry not dead: " .. vim.inspect(registry.all("smoke")[tid]))
 assert(vim.wait(10000, function() return h.by_terminal(tid) == nil end, 100), "agent still live")
+-- 5. X on a past (dead) agent archives its threads and never calls herdr.kill
+local ev = vim.json.encode({ kind = "message", id = "m1", ts = os.time(), title = "s11b", project = "smoke", text = "x",
+  session = { herdr = { terminal_id = tid } } })
+vim.fn.writefile({ ev }, store.path("threads", "2026-01-01T00-00-00-s11b.jsonl"))
+local kills = {}
+h.kill = function(target) kills[#kills + 1] = tostring(target) end
+ui.refresh_rail()
+local dr = rail.row(buf, "a:" .. tid)
+assert(dr and not rail.node(buf, dr).live, "dead agent row missing")
+vim.api.nvim_set_current_win(win)
+vim.api.nvim_win_set_cursor(win, { dr, 0 })
+vim.cmd("normal! zv")
+vim.cmd("normal X")
+assert(store.thread("2026-01-01T00-00-00-s11b").archived, "past agent's thread not archived")
+assert(#kills == 0, "herdr.kill called for a dead agent: " .. table.concat(kills, ","))
 print("T11 OK")
 LUA
 CLI=$CLI NVIM_CFG=$NVIM_CFG nlua "$T/t11.lua" 2>&1 | tee "$T/t11.out" | grep -q "T11 OK" || { cat "$T/t11.out"; fail "section 11"; }
-ok "rail: empty project row; smoke > agent > s11 one line each; folds + cursor survive refresh; kill archives + registry dead"
+ok "rail: empty project row; smoke > agent > s11 one line each; folds + cursor survive refresh; kill archives + registry dead; X on a past agent archives without herdr.kill"
 [ "$LAST" -le 11 ] && exit 0
 
 echo "all sections passed"

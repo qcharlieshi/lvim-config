@@ -423,7 +423,12 @@ end
 function M.kill_agent(node)
   local herdr, registry = require("cockpit.herdr"), require("cockpit.registry")
   local tid = node.terminal_id
-  local a = node.kind == "agent" and (node.live and node.agent or nil) or node
+  local a -- live herdr cache entry to kill; nil for a dead (past) agent
+  if node.kind ~= "agent" then
+    a = node
+  elseif node.live then
+    a = node.agent
+  end
   local name = node.name or (a and a.target) or tid
   local project = (node.rec and node.rec.project) or (a and a.project)
   local recs = project and registry.all(project) or {}
@@ -458,7 +463,10 @@ function M.kill_agent(node)
     registry.append(project, vim.tbl_extend("force", rec, { dead = true }))
     local ok, f = pcall(require, "cockpit.forks")
     if ok and rec.fork == "worktree" then
-      f.cleanup(rec)
+      local cok, cerr = pcall(f.cleanup, rec)
+      if not cok then
+        vim.notify("cockpit: fork cleanup failed — " .. tostring(cerr), vim.log.levels.ERROR)
+      end
     end
   end
   vim.notify(("cockpit: killed %s, archived %d threads"):format(name, #owned))
