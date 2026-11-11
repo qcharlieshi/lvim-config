@@ -759,4 +759,27 @@ nlua "$T/t15.lua" 2>&1 | tee "$T/t15.out" | grep -q "T15 OK" || { cat "$T/t15.ou
 ok "select unlists other threads' deliverables; a diff deliverable auto-opens CodeDiff with a placeholder winbar"
 [ "$LAST" -le 15 ] && exit 0
 
+# 16. quiet Stop hook (no herdr): unwatched stops post only for inbox replies or trailing '?'
+I16=$T/inbox16
+mkdir -p "$I16"
+hook16() { # <prompt> <last message> <session id>
+  printf '{"type":"user","message":{"content":"%s"}}\n' "$1" >"$T/tr16.jsonl"
+  python3 -c 'import json,sys; print(json.dumps({"transcript_path": sys.argv[1], "last_assistant_message": sys.argv[2], "session_id": sys.argv[3], "cwd": "/tmp"}))' \
+    "$T/tr16.jsonl" "$2" "$3" |
+    env -u TMUX -u TMUX_PANE HERDR_PANE_ID=w0:p0 COCKPIT_INBOX_DIR="$I16" python3 "$CLI" hook stop
+}
+hook16 "hello" "Done." aaaaaaaa11
+[ -z "$(ls "$I16/threads" 2>/dev/null)" ] || fail "status chatter created a thread: $(ls "$I16/threads")"
+hook16 "hello" "Checked it.
+Which one?" bbbbbbbb22
+[ "$(wc -l <"$I16/threads/session-bbbbbbbb.jsonl")" -eq 1 ] || fail "question thread missing"
+grep -q '"questions": \[{' "$I16/threads/session-bbbbbbbb.jsonl" || grep -q '"questions":\[{' "$I16/threads/session-bbbbbbbb.jsonl" || fail "no question recorded"
+mkdir -p "$I16/threads"
+echo '{"kind":"message","from":"agent","text":"seed","title":"T1"}' >"$I16/threads/T1.jsonl"
+hook16 "Inbox reply on thread T1." "ok" cccccccc33
+[ "$(wc -l <"$I16/threads/T1.jsonl")" -eq 2 ] || fail "reply did not append to T1"
+[ ! -e "$I16/threads/session-cccccccc.jsonl" ] || fail "reply made a stray thread"
+ok "Stop hook: chatter silent, trailing ? posts a question, inbox reply appends to its thread"
+[ "$LAST" -le 16 ] && exit 0
+
 echo "all sections passed"

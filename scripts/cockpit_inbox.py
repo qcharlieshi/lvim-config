@@ -431,7 +431,9 @@ def hook_stop(payload):
     Route an unattended stop to the inbox:
       watched pane / already posted / second stop (stop_hook_active) -> allow
       edited files but posted nothing -> block, telling the agent how to post them for review
-      anything else -> allow, posting the last message as an FYI (a trailing '?' makes it a question)
+      answering an inbox reply -> allow, appending to that thread
+      last line ends with '?' -> allow, posting it as a question
+      anything else (status chatter) -> allow, posting nothing
     """
     tmux_pane = os.environ.get("TMUX_PANE")
     # herdr panes are headless and herdr exposes no "client attached" signal: always unwatched
@@ -461,9 +463,11 @@ def hook_stop(payload):
     text = (payload.get("last_assistant_message") or "").strip()
     if not text:
         return None
+    last_line = text.splitlines()[-1].strip()
+    if not reply_thread and not last_line.endswith("?"):
+        return None
     tid = reply_thread or f"session-{(payload.get('session_id') or 'unknown')[:8]}"
     path = THREADS / f"{tid}.jsonl"
-    last_line = text.splitlines()[-1].strip()
     event = {
         "kind": "message",
         "from": "agent",
