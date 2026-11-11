@@ -329,4 +329,45 @@ nlua "$T/t8.lua" 2>&1 | tee "$T/t8.out" | grep -q "T8 OK" || { cat "$T/t8.out"; 
 ok "flat project json migrates to <name>/project.json with repo symlinks and thread links"
 [ "$LAST" -le 8 ] && exit 0
 
+# --- 9: agent registry, unique names, thread ownership ---------------------------------------------
+echo "9: registry + names + owner"
+cat >"$T/t9.lua" <<'LUA'
+local h, registry, store = require("cockpit.herdr"), require("cockpit.registry"), require("cockpit.inbox.store")
+local function await(fn, ms)
+  local got
+  fn(function(...) got = { ... } end)
+  assert(vim.wait(ms or 90000, function() return got ~= nil end, 50), "timed out")
+  return unpack(got)
+end
+h.start(); h.watch(true)
+vim.fn.delete(require("cockpit.projects").root("smoke") .. "/agents.jsonl") -- earlier sections also spawn into smoke
+local err, name1 = await(function(cb) h.spawn("smoke", nil, cb) end)
+assert(not err, vim.inspect(err))
+local tid1 = h.agents()[name1].terminal_id
+local all = registry.all("smoke")
+assert(vim.tbl_count(all) == 1, "registry: " .. vim.inspect(all))
+assert(all[tid1] and all[tid1].name == name1, "no record for " .. tid1)
+assert(type(all[tid1].session) == "string" and all[tid1].session ~= "", "no session: " .. vim.inspect(all[tid1]))
+assert(registry.names("smoke")[name1], "names() missing " .. name1)
+assert(h.kill(name1) == nil, "kill errored")
+assert(vim.wait(10000, function() return h.agents()[name1] == nil end, 100), "still cached")
+local err2, name2 = await(function(cb) h.spawn("smoke", nil, cb) end)
+assert(not err2, vim.inspect(err2))
+assert(name2 ~= name1, "name reused: " .. name2)
+h.kill(name2)
+-- ownership: first message's session wins; t.session stays the latest
+local function ev(term, n)
+  return vim.json.encode({ kind = "message", id = "m" .. n, ts = n, title = "own", project = "smoke", text = "x", session = { herdr = { terminal_id = term } } })
+end
+vim.fn.mkdir(store.path("threads"), "p")
+vim.fn.writefile({ ev("term_first", 1), ev("term_second", 2) }, store.path("threads", "2026-01-01T00-00-00-own9.jsonl"))
+local t = store.thread("2026-01-01T00-00-00-own9")
+assert(t.owner.herdr.terminal_id == "term_first", vim.inspect(t.owner))
+assert(t.session.herdr.terminal_id == "term_second", vim.inspect(t.session))
+print("T9 OK")
+LUA
+nlua "$T/t9.lua" 2>&1 | tee "$T/t9.out" | grep -q "T9 OK" || { cat "$T/t9.out"; fail "section 9"; }
+ok "spawn records {terminal_id, session} in agents.jsonl; respawn gets a fresh name; thread.owner = first message session"
+[ "$LAST" -le 9 ] && exit 0
+
 echo "all sections passed"

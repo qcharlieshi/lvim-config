@@ -249,19 +249,29 @@ end
 -- Actions
 ---------------------------------------------------------------------------
 
+-- A name is free if no live agent, no registry record (names are never reused within a project),
+-- and no fork/<name>-* branch in the primary repo has it.
 local function free_name(project)
   local _, res = M.request("agent.list", {})
-  local taken = {}
+  local taken = vim.deepcopy(require("cockpit.registry").names(project))
   for _, a in ipairs((res or {}).agents or {}) do
     if a.name then
       taken[a.name] = true
     end
   end
+  local p = require("cockpit.projects").get(project)
+  local repo = p and p.repos[1]
   local n = 1
-  while taken[project .. "-" .. n] do
+  while true do
+    local cand = project .. "-" .. n
+    if not taken[cand] then
+      local out = repo and vim.system({ "git", "-C", repo, "branch", "--list", "fork/" .. cand .. "-*" }, { text = true }):wait().stdout or ""
+      if vim.trim(out) == "" then
+        return cand
+      end
+    end
     n = n + 1
   end
-  return project .. "-" .. n
 end
 
 -- The pane to start an agent in: create the project's ck/ workspace and use its fresh root pane,
@@ -319,6 +329,19 @@ function M.spawn(project, prompt, cb)
   -- a fresh pane needs a moment to reach its shell prompt before agent.start accepts it
   vim.defer_fn(function()
     local function started(serr)
+      -- Record the agent once it exists: on ready, and also when blocked at startup (the agent is kept)
+      if not serr or serr.code == "agent_not_ready" then
+        local _, got = M.request("agent.get", { target = name })
+        local a = got and got.agent
+        if a and a.terminal_id then
+          require("cockpit.registry").append(project, {
+            name = name,
+            project = project,
+            terminal_id = a.terminal_id,
+            session = a.agent_session and a.agent_session.value or nil,
+          })
+        end
+      end
       M.reconcile()
       if serr and serr.code == "agent_not_ready" then
         vim.ui.select({ "Attach now", "Later" }, { prompt = name .. " is blocked at startup (likely folder trust)" }, function(choice)

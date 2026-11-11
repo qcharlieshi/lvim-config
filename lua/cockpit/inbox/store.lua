@@ -73,6 +73,7 @@ function M.thread(id)
     if e.kind == "message" then
       t.title = t.title or e.title
       t.project = t.project or e.project
+      t.owner = t.owner or e.session
       t.session = e.session or t.session
       t.pipeline = t.pipeline or e.pipeline
       t.stages = t.stages or e.stages
