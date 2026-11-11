@@ -177,4 +177,43 @@ T=$T NVIM_CFG=$NVIM_CFG nlua "$T/t4.lua" 2>&1 | tee "$T/t4.out" | grep -q "T4 OK
 ok "spawn into project (env + label), prompt, interrupt, kill; untrusted -> blocked + attach offer; ad-hoc agent left alone"
 [ "$LAST" -le 4 ] && exit 0
 
+# --- 5: reply delivery via agent.prompt ------------------------------------------------------
+echo "5: delivery"
+cat >"$T/t5.lua" <<'LUA'
+local h, store = require("cockpit.herdr"), require("cockpit.inbox.store")
+local function await(fn, ms)
+  local got
+  fn(function(...) got = { ... } end)
+  assert(vim.wait(ms or 90000, function() return got ~= nil end, 50), "timed out")
+  return unpack(got)
+end
+h.start(); h.watch(true)
+local err, name = await(function(cb) h.spawn("smoke", nil, cb) end)
+assert(not err, vim.inspect(err))
+local cmd = ("python3 %s post --title s5 --text hi"):format(vim.env.CLI)
+local perr = await(function(cb)
+  h.request("agent.prompt", { target = name, text = "Run exactly this bash command, then reply done: " .. cmd, wait = { timeout_ms = 90000 } }, cb)
+end, 100000)
+assert(not perr, vim.inspect(perr))
+local f = vim.fn.glob(store.path("threads", "*-s5.jsonl"), false, true)[1]
+assert(f, "agent did not post s5")
+local t = store.thread(vim.fn.fnamemodify(f, ":t:r"))
+assert(t.session.herdr and t.session.herdr.terminal_id, "s5 has no herdr identity")
+local how = store.deliver(t)
+assert(how:find("^delivered"), "deliver returned: " .. how)
+assert(vim.wait(60000, function()
+  local _, r = h.request("agent.read", { target = name, source = "recent_unwrapped", lines = 80 })
+  return r and vim.inspect(r):find("Inbox reply on thread", 1, true) ~= nil
+end, 1000), "reply never reached the agent")
+-- Review Focus 3: killed agent -> offline, never another pane
+h.kill(name)
+assert(vim.wait(10000, function() return h.by_terminal(t.session.herdr.terminal_id) == nil end), "still cached")
+local how2 = store.deliver(t)
+assert(how2:find("offline", 1, true), "deliver after kill returned: " .. how2)
+print("T5 OK")
+LUA
+CLI=$CLI nlua "$T/t5.lua" 2>&1 | tee "$T/t5.out" | grep -q "T5 OK" || { cat "$T/t5.out"; fail "section 5"; }
+ok "reply delivered to the herdr agent via agent.prompt; offline after kill"
+[ "$LAST" -le 5 ] && exit 0
+
 echo "all sections passed"

@@ -333,7 +333,20 @@ function M.deliver(t)
   if M.agent_waiting(t.id) then
     return "agent was waiting and has it"
   end
+  local msg = ("Inbox reply on thread %s. Run: python3 %s read %s --new"):format(t.id, M.cli, t.id)
+  -- herdr agents: join on terminal_id (pane ids restart after a server restart), deliver with agent.prompt
+  local hid = t.session and t.session.herdr
+  if hid then
+    local herdr = require("cockpit.herdr")
+    local agent = herdr.by_terminal(hid.terminal_id)
+    if agent then
+      return herdr.prompt(agent.target, msg)
+    end
+  end
   local pane = t.session and t.session.tmux_pane
+  if not pane and hid then
+    return "agent offline; reply kept for the next reader"
+  end
   if not pane then
     return "no agent pane; it can run `read " .. t.id .. " --new`"
   end
@@ -342,7 +355,6 @@ function M.deliver(t)
   if not vim.tbl_contains(vim.split(panes, "\n", { trimempty = true }), pane) then
     return "agent pane " .. pane .. " is gone; reply kept for the next reader"
   end
-  local msg = ("Inbox reply on thread %s. Run: python3 %s read %s --new"):format(t.id, M.cli, t.id)
   vim.system({ "tmux", "send-keys", "-t", pane, "-l", msg }):wait()
   vim.system({ "tmux", "send-keys", "-t", pane, "Enter" }):wait()
   return "delivered to pane " .. pane
