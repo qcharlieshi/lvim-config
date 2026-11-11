@@ -1,13 +1,17 @@
 -- cockpit projects: a named set of repos (first = primary, spawn cwd; rest = --add-dir).
--- One JSON file per project; step 3 adds <dir>/<name>/ (PRD, context, memory) beside it.
+-- Layout: <dir>/<name>/{project.json, repos/<basename> -> repo, threads/<tid>.jsonl -> inbox thread}.
 local M = {}
 
 M.dir = vim.fn.expand(vim.env.COCKPIT_PROJECTS_DIR or "~/.cockpit/projects")
 local NAME = "^[a-z][a-z0-9_-]*$"
 local DONE = "✓ done"
 
+function M.root(name)
+  return M.dir .. "/" .. name
+end
+
 local function file(name)
-  return M.dir .. "/" .. name .. ".json"
+  return M.root(name) .. "/project.json"
 end
 
 local function read(path)
@@ -23,14 +27,62 @@ local function read(path)
   return p
 end
 
+local function link(target, path)
+  if not vim.uv.fs_lstat(path) then
+    vim.uv.fs_symlink(target, path)
+  end
+end
+
+function M.save(p)
+  local root = M.root(p.name)
+  vim.fn.mkdir(root .. "/repos", "p")
+  vim.fn.mkdir(root .. "/threads", "p")
+  local home = vim.fn.expand("~")
+  local repos = vim.tbl_map(function(r)
+    return r:sub(1, #home) == home and ("~" .. r:sub(#home + 1)) or r
+  end, p.repos)
+  local data = { name = p.name, repos = repos, created = p.created or os.date("%Y-%m-%dT%H:%M:%S%z") }
+  vim.fn.writefile({ vim.json.encode(data) }, file(p.name))
+  -- rebuild repos/ symlinks (basename collision -> <basename>-2)
+  for _, l in ipairs(vim.fn.glob(root .. "/repos/*", false, true)) do
+    vim.uv.fs_unlink(l)
+  end
+  local seen = {}
+  for _, r in ipairs(p.repos) do
+    local base = vim.fs.basename(r)
+    local n = base
+    if seen[base] then
+      n = base .. "-2"
+    end
+    seen[base] = true
+    vim.uv.fs_symlink(vim.fn.expand(r), root .. "/repos/" .. n)
+  end
+end
+
+-- flat <name>.json (step 1) -> <name>/project.json
+function M.migrate()
+  for _, path in ipairs(vim.fn.glob(M.dir .. "/*.json", false, true)) do
+    local p = read(path)
+    if p then
+      p.name = p.name or vim.fn.fnamemodify(path, ":t:r")
+      local raw = vim.json.decode(table.concat(vim.fn.readfile(path), "\n"))
+      p.created = raw.created
+      M.save(p)
+      vim.uv.fs_unlink(path)
+    end
+  end
+end
+
 function M.get(name)
+  M.migrate()
   local path = file(name)
   return vim.fn.filereadable(path) == 1 and read(path) or nil
 end
 
 function M.list()
+  M.migrate()
   local out = {}
-  for _, path in ipairs(vim.fn.glob(M.dir .. "/*.json", false, true)) do
+  for _, path in ipairs(vim.fn.glob(M.dir .. "/*/project.json", false, true)) do
     local p = read(path)
     if p then
       out[#out + 1] = p
@@ -42,14 +94,10 @@ function M.list()
   return out
 end
 
-function M.save(p)
-  vim.fn.mkdir(M.dir, "p")
-  local home = vim.fn.expand("~")
-  local repos = vim.tbl_map(function(r)
-    return r:sub(1, #home) == home and ("~" .. r:sub(#home + 1)) or r
-  end, p.repos)
-  local data = { name = p.name, repos = repos, created = p.created or os.date("%Y-%m-%dT%H:%M:%S%z") }
-  vim.fn.writefile({ vim.json.encode(data) }, file(p.name))
+function M.link_thread(name, tid)
+  local store = require("cockpit.inbox.store")
+  vim.fn.mkdir(M.root(name) .. "/threads", "p")
+  link(store.thread_file(tid), M.root(name) .. "/threads/" .. tid .. ".jsonl")
 end
 
 local function git_roots()

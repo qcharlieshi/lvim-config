@@ -104,12 +104,12 @@ vim.ui.select = function(_, _, cb) cb(table.remove(picks, 1)) end
 projects.new()
 local p = assert(projects.get("smoke"), "project smoke missing")
 assert(vim.deep_equal(p.repos, { vim.fn.expand("~/.config/nvim"), vim.fn.expand("~/dev/genzed") }), vim.inspect(p.repos))
-assert(vim.fn.filereadable(vim.env.COCKPIT_PROJECTS_DIR .. "/smoke.json") == 1, "smoke.json not written")
+assert(vim.fn.filereadable(vim.env.COCKPIT_PROJECTS_DIR .. "/smoke/project.json") == 1, "smoke/project.json not written")
 assert(#projects.list() == 1 and projects.list()[1].name == "smoke", "list")
 print("T3 OK")
 LUA
 nlua "$T/t3.lua" 2>&1 | tee "$T/t3.out" | grep -q "T3 OK" || { cat "$T/t3.out"; fail "section 3"; }
-ok "projects.new() writes smoke.json with primary + extra repo"
+ok "projects.new() writes smoke/project.json with primary + extra repo"
 [ "$LAST" -le 3 ] && exit 0
 
 # --- 4: agent actions — spawn / prompt / interrupt / kill ---------------------------------------
@@ -300,5 +300,33 @@ LUA
 HW=$HW nlua "$T/t7.lua" 2>&1 | tee "$T/t7.out" | grep -q "T7 OK" || { cat "$T/t7.out"; fail "section 7"; }
 ok "timer on while open/off after close; spawn uses its own ck/ workspace; no tmux fallthrough for herdr threads"
 [ "$LAST" -le 7 ] && exit 0
+
+# --- 8: project directories — migration from flat json, repo symlinks, thread links ---------------
+echo "8: project dirs"
+mkdir -p "$T/projects"
+echo '{"name":"old","repos":["~/.config/nvim","~/dev/genzed"],"created":"2026-01-01T00:00:00+0000"}' >"$T/projects/old.json"
+cat >"$T/t8.lua" <<'LUA'
+local projects = require("cockpit.projects")
+local dir = vim.env.COCKPIT_PROJECTS_DIR
+local p = assert(projects.get("old"), "old missing")
+assert(vim.deep_equal(p.repos, { vim.fn.expand("~/.config/nvim"), vim.fn.expand("~/dev/genzed") }), vim.inspect(p.repos))
+assert(vim.fn.filereadable(dir .. "/old/project.json") == 1, "project.json not written")
+assert(vim.fn.filereadable(dir .. "/old.json") == 0, "old.json not removed")
+assert(projects.root("old") == dir .. "/old", projects.root("old"))
+for base, repo in pairs({ nvim = "~/.config/nvim", genzed = "~/dev/genzed" }) do
+  local l = dir .. "/old/repos/" .. base
+  assert(vim.uv.fs_lstat(l).type == "link", base .. " not a symlink")
+  assert(vim.uv.fs_realpath(l) == vim.uv.fs_realpath(vim.fn.expand(repo)), base .. " wrong target")
+end
+projects.link_thread("old", "x")
+assert(vim.uv.fs_lstat(dir .. "/old/threads/x.jsonl").type == "link", "thread link missing")
+projects.link_thread("old", "x") -- idempotent
+projects.migrate()
+assert(vim.tbl_contains(vim.tbl_map(function(x) return x.name end, projects.list()), "old"), "old missing from list after re-migrate")
+print("T8 OK")
+LUA
+nlua "$T/t8.lua" 2>&1 | tee "$T/t8.out" | grep -q "T8 OK" || { cat "$T/t8.out"; fail "section 8"; }
+ok "flat project json migrates to <name>/project.json with repo symlinks and thread links"
+[ "$LAST" -le 8 ] && exit 0
 
 echo "all sections passed"
