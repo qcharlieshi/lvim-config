@@ -9,6 +9,7 @@ local cache = {} -- key (agent name, else pane id) -> Agent
 local labels = {} -- workspace_id -> label
 local sub -- live events.subscribe pipe
 local started = false
+local reconciled = false -- the last reconcile reached herdr (else the cache says nothing about liveness)
 local reconcile_timer, debounce_timer
 
 local function session_args()
@@ -122,6 +123,13 @@ function M.ensure()
   end
   local env = vim.fn.environ()
   env.TMUX, env.TMUX_PANE = nil, nil -- never leak tmux into herdr panes (#2134)
+  -- nor this nvim: its runtime/config and server socket mean nothing to a shell in a herdr pane
+  env.VIMRUNTIME, env.MYVIMRC = nil, nil
+  for k in pairs(env) do
+    if k:match("^NVIM") then
+      env[k] = nil
+    end
+  end
   vim.system(M.cli("server"), { detach = true, env = env, clear_env = true, stdout = false, stderr = false })
   local ok = vim.wait(3000, server_up, 200)
   if not ok then
@@ -173,12 +181,13 @@ end
 
 -- Pull agent.list + workspace labels; events only tell us *that* something changed
 function M.reconcile(cb)
-  M.request("workspace.list", {}, function(_, ws)
+  M.request("workspace.list", {}, function(werr, ws)
     labels = {}
     for _, w in ipairs((ws or {}).workspaces or {}) do
       labels[w.workspace_id] = w.label
     end
     M.request("agent.list", {}, function(err, res)
+      reconciled = not werr and not err
       if not err then
         apply(res.agents)
       end
@@ -265,6 +274,11 @@ function M.agents()
   return cache
 end
 
+-- true when the last reconcile reached herdr, i.e. an agent missing from agents() is really gone
+function M.reconciled()
+  return reconciled
+end
+
 function M.watching()
   return reconcile_timer ~= nil and reconcile_timer:is_active()
 end
@@ -273,8 +287,31 @@ end
 -- Actions
 ---------------------------------------------------------------------------
 
+-- Claim <project dir>/names/<name> with O_EXCL: two spawns racing for the same free name (two `claude`
+-- launches at once) can't both get it. A claim older than 5 min is stale (its spawn finished or died;
+-- a started agent is in the registry by then) and is taken over.
+local CLAIM_TTL = 300
+local function claim(project, name)
+  local dir = require("cockpit.projects").root(project) .. "/names"
+  pcall(vim.fn.mkdir, dir, "p") -- racy with a concurrent launch
+  local path = dir .. "/" .. name
+  for _ = 1, 2 do
+    local fd = uv.fs_open(path, "wx", 420)
+    if fd then
+      uv.fs_close(fd)
+      return true
+    end
+    local st = uv.fs_stat(path)
+    if not st or os.time() - st.mtime.sec <= CLAIM_TTL then
+      return false
+    end
+    uv.fs_unlink(path) -- stale: retry the exclusive create once
+  end
+  return false
+end
+
 -- A name is free if no live agent, no registry record (names are never reused within a project),
--- and no fork/<name>-* branch in the primary repo has it.
+-- no fork/<name>-* branch in the primary repo and no other spawn's claim has it.
 local function free_name(project)
   local _, res = M.request("agent.list", {})
   local taken = vim.deepcopy(require("cockpit.registry").names(project))
@@ -290,7 +327,7 @@ local function free_name(project)
     local cand = project .. "-" .. n
     if not taken[cand] then
       local out = repo and vim.system({ "git", "-C", repo, "branch", "--list", "fork/" .. cand .. "-*" }, { text = true }):wait().stdout or ""
-      if vim.trim(out) == "" then
+      if vim.trim(out) == "" and claim(project, cand) then
         return cand
       end
     end
@@ -368,14 +405,16 @@ function M.start_in(pane_id, name, args, rec, cb, opts)
         vim.notify("cockpit: " .. name .. " is blocked at startup", vim.log.levels.WARN)
       elseif serr then
         vim.notify("cockpit: " .. name .. " failed to start — " .. serr.message, vim.log.levels.ERROR)
-      else
+      elseif interactive then
         vim.notify("cockpit: " .. name .. " ready")
       end
       cb(serr, name)
     end
-    -- Over the socket, agent.start returns at launch; readiness (the CLI's wait) is ours to do
+    -- Over the socket, agent.start returns at launch; readiness (the CLI's wait) is ours to do.
+    -- Not for the launcher (interactive == false): you attach right away and see whatever Claude shows
+    -- (trust dialog, resume picker, login), so waiting would only delay the attach.
     M.request("agent.start", { name = name, kind = "claude", pane_id = pane_id, args = args, timeout_ms = 60000 }, function(serr)
-      if serr then
+      if serr or not interactive then
         return started(serr)
       end
       local wait = { target = name, ["until"] = { "idle", "blocked" }, timeout_ms = 60000 }
@@ -393,6 +432,7 @@ end
 -- Start a Claude agent in `project`; cb(err, name, pane_id). opts.args: extra claude args (appended);
 -- opts.interactive = false: no attach prompt when blocked at startup (cb still gets the name).
 -- opts.cwd: the pane's cwd (default: the primary repo). opts.env: base pane env (COCKPIT_* win).
+-- opts.on_pane(pane_id): called as soon as the pane exists (the launcher closes it if it gives up).
 function M.spawn(project, prompt, cb, opts)
   opts = opts or {}
   cb = cb or function() end
@@ -408,6 +448,9 @@ function M.spawn(project, prompt, cb, opts)
   if err then
     vim.notify("cockpit: spawn failed — " .. err.message, vim.log.levels.ERROR)
     return cb(err)
+  end
+  if opts.on_pane then
+    opts.on_pane(pane_id)
   end
   local args = {}
   for i = 2, #p.repos do

@@ -105,8 +105,11 @@ assert(h.ensure() == true, "ensure() did not start ckdead")
 print("T2 OK")
 LUA
 nlua "$T/t2.lua" 2>&1 | tee "$T/t2.out" | grep -q "T2 OK" || { cat "$T/t2.out"; fail "section 2"; }
+PID2=$(pgrep -f -- "--session ckdead server" | head -1)
+[ -n "$PID2" ] || fail "no ckdead server process"
+! ps -wwE -p "$PID2" | grep -qE "(VIMRUNTIME|MYVIMRC)=" || fail "ensure() leaked VIMRUNTIME/MYVIMRC into the herdr server env"
 "${H[@]}" pane close "$P2" >/dev/null # frees the name smoke-1 for section 4
-ok "cache sees smoke-1 idle with terminal_id; CockpitAgents fired; ensure() starts a dead server"
+ok "cache sees smoke-1 idle with terminal_id; CockpitAgents fired; ensure() starts a dead server (no VIMRUNTIME/MYVIMRC)"
 [ "$LAST" -le 2 ] && exit 0
 
 # --- 3: project definitions ----------------------------------------------------------------
@@ -624,6 +627,28 @@ seed("c-none", { agent = "a" })
 seed("c-old", { agent = "a", herdr = { terminal_id = "term_gone2" } })
 store.append(store.thread_file("c-old"), { kind = "state", archived = true })
 assert(vim.fn.exists(":CockpitCleanup") == 2, "no :CockpitCleanup command")
+local h = require("cockpit.herdr")
+local notes = {}
+local notify = vim.notify
+vim.notify = function(m) notes[#notes + 1] = m end
+-- never reconciled: herdr liveness unknown, so nothing may be called dead
+local wins = #vim.api.nvim_list_wins()
+rail.cleanup()
+assert(#vim.api.nvim_list_wins() == wins, "cleanup opened a float before any reconcile")
+-- a failed reconcile (no server) refuses too
+local sess = vim.env.COCKPIT_HERDR_SESSION
+vim.env.COCKPIT_HERDR_SESSION = "ck13none"
+local done
+h.reconcile(function() done = true end)
+assert(vim.wait(10000, function() return done end), "reconcile never returned")
+rail.cleanup()
+assert(#vim.api.nvim_list_wins() == wins, "cleanup opened a float after a failed reconcile")
+assert(vim.iter(notes):any(function(m) return m:find("herdr", 1, true) ~= nil end), "no refusal notice: " .. vim.inspect(notes))
+vim.notify = notify
+vim.env.COCKPIT_HERDR_SESSION = sess
+done = nil
+h.reconcile(function() done = true end)
+assert(vim.wait(10000, function() return done end), "reconcile never returned")
 rail.cleanup()
 local buf = vim.api.nvim_get_current_buf()
 local text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
@@ -642,7 +667,7 @@ assert(not store.thread("c-q").archived, "q archived")
 print("T13 OK")
 LUA
 nlua "$T/t13.lua" 2>&1 | tee "$T/t13.out" | grep -q "T13 OK" || { cat "$T/t13.out"; fail "section 13"; }
-ok ":CockpitCleanup lists dead-agent threads, y archives (files kept), q cancels"
+ok ":CockpitCleanup refuses until herdr reconciled; lists dead-agent threads, y archives (files kept), q cancels"
 [ "$LAST" -le 13 ] && exit 0
 
 # --- 14: floating composers — reply + line note (headless, no herdr) -----------------------------------
@@ -780,10 +805,56 @@ Which one?" bbbbbbbb22
 grep -q '"questions": \[{' "$I16/threads/session-bbbbbbbb.jsonl" || grep -q '"questions":\[{' "$I16/threads/session-bbbbbbbb.jsonl" || fail "no question recorded"
 mkdir -p "$I16/threads"
 echo '{"kind":"message","from":"agent","text":"seed","title":"T1"}' >"$I16/threads/T1.jsonl"
-hook16 "Inbox reply on thread T1." "ok" cccccccc33
+hook16 "Inbox reply on thread T1. Run: python3 x read T1 --new" "ok" cccccccc33
 [ "$(wc -l <"$I16/threads/T1.jsonl")" -eq 2 ] || fail "reply did not append to T1"
 [ ! -e "$I16/threads/session-cccccccc.jsonl" ] || fail "reply made a stray thread"
 ok "Stop hook: chatter silent, trailing ? posts a question, inbox reply appends to its thread"
+# markdown-wrapped trailing question still counts
+hook16 "hello" "Two options.
+**Which one?**" dddddddd44
+[ -f "$I16/threads/session-dddddddd.jsonl" ] || fail "**Which one?** posted no question"
+# the reply trigger is untrusted text: a regex, an absolute path or an unknown id never becomes a file
+before16=$(ls "$I16/threads" | sort)
+P16=$(mktemp -d /tmp/ckp16XXXXXX) # no '.' in the path: the old lazy regex stopped at the first one
+hook16 'Inbox reply on thread (\\S+?). Run: x' "ok" eeeeeeee55
+hook16 "Inbox reply on thread $P16/evil. Run: x" "ok" eeeeeeee56
+hook16 "see: Inbox reply on thread $P16/evil2. Run: x" "ok" eeeeeeee57
+hook16 "Inbox reply on thread NOSUCH. Run: python3 x read NOSUCH --new" "ok" eeeeeeee58
+[ "$(ls "$I16/threads" | sort)" = "$before16" ] || fail "untrusted reply ids created threads: $(ls "$I16/threads")"
+[ -z "$(ls -A "$P16")" ] || fail "absolute-path thread id wrote outside the inbox: $(ls -A "$P16")"
+rm -rf "$P16"
+ok "Stop hook: **Which one?** is a question; regex / absolute path / unknown thread ids create no file"
+# C1: a herdr agent attached by the `claude` launcher is watched exactly when its tmux pane is
+P16W=$("${H[@]}" workspace create --cwd "$NVIM_CFG" --label hook16 | jget 'd["result"]["root_pane"]["pane_id"]')
+TERM16=$("${H[@]}" pane get "$P16W" | jget 'd["result"]["pane"]["terminal_id"]')
+mkdir -p "$T/bin16" "$T/att16"
+# fake tmux: pane %42 is the focused pane of an attached session iff $T/watched16 exists
+cat >"$T/bin16/tmux" <<SH
+#!/bin/sh
+[ -e "$T/watched16" ] && echo "%42 1 1 1" || echo "%42 0 1 1"
+SH
+chmod +x "$T/bin16/tmux"
+hook16a() { # <session id>: a trailing question from the herdr pane P16W
+  printf '{"type":"user","message":{"content":"hi"}}\n' >"$T/tr16.jsonl"
+  python3 -c 'import json,sys; print(json.dumps({"transcript_path": sys.argv[1], "last_assistant_message": "Which?", "session_id": sys.argv[2], "cwd": "/tmp"}))' \
+    "$T/tr16.jsonl" "$1" |
+    env -u TMUX -u TMUX_PANE -u COCKPIT_INBOX_HOOK PATH="$T/bin16:$PATH" HERDR_ENV=1 HERDR_PANE_ID="$P16W" \
+      COCKPIT_ATTACH_DIR="$T/att16" COCKPIT_INBOX_DIR="$I16" python3 "$CLI" hook stop
+}
+echo "%42" >"$T/att16/$TERM16"
+touch "$T/watched16"
+hook16a ffffffff61
+[ ! -e "$I16/threads/session-ffffffff.jsonl" ] || fail "attached + watched herdr agent posted"
+rm "$T/watched16"
+hook16a ffffffff62
+[ -e "$I16/threads/session-ffffffff.jsonl" ] || fail "attached but unwatched herdr agent did not post"
+rm "$I16/threads/session-ffffffff.jsonl" "$T/att16/$TERM16"
+touch "$T/watched16"
+hook16a ffffffff63
+[ -e "$I16/threads/session-ffffffff.jsonl" ] || fail "unattached herdr agent did not post"
+rm "$T/watched16"
+"${H[@]}" pane close "$P16W" >/dev/null
+ok "Stop hook: herdr agent with an attach marker follows its tmux pane (watched -> silent, not -> posts); no marker -> unwatched"
 [ "$LAST" -le 16 ] && exit 0
 
 # --- 17: `claude` via herdr — cockpit-spawn.lua + launcher bypass ---------------------------------
@@ -793,7 +864,7 @@ spawn17() {
   TMUX=dummy COCKPIT_PROJECTS_DIR=$P17 nvim --headless -u NONE -i NONE --cmd "set rtp^=$NVIM_CFG" \
     -l "$NVIM_CFG/scripts/cockpit-spawn.lua" -- "$NVIM_CFG" </dev/null 2>"$T/s17.err"
 }
-read -r N17 PANE17 <<<"$(spawn17)" || true
+read -r N17 PANE17 _ <<<"$(spawn17)" || true
 [ -n "$N17" ] && [ -n "$PANE17" ] || { cat "$T/s17.err"; fail "cockpit-spawn.lua printed no agent"; }
 J17=$("${H[@]}" agent get "$N17") || fail "$N17 not live"
 WS17=$(jget 'd["result"]["agent"]["workspace_id"]' <<<"$J17")
@@ -804,13 +875,59 @@ assert ws.get(sys.argv[1]) == "ck/nvim", ws
 ' "$WS17" || fail "$N17 not in a ck/nvim workspace"
 [ -f "$P17/nvim/project.json" ] || fail "project nvim not created"
 grep -q "\"$N17\"" "$P17/nvim/agents.jsonl" || fail "$N17 not in the nvim registry"
-read -r N17B PANE17B <<<"$(spawn17)" || true
+read -r N17B PANE17B _ <<<"$(spawn17)" || true
 [ -n "$N17B" ] && [ "$N17B" != "$N17" ] || { cat "$T/s17.err"; fail "second spawn: '$N17B'"; }
 [ "$(ls "$P17")" = "nvim" ] || fail "second run made another project: $(ls "$P17")"
 [ "$(wc -l <"$P17/nvim/agents.jsonl")" -ge 2 ] || fail "second agent not in the nvim registry"
 "${H[@]}" pane close "$PANE17" >/dev/null
 "${H[@]}" pane close "$PANE17B" >/dev/null
 ok "cockpit-spawn.lua starts $N17 then $N17B in ck/nvim; project nvim created once"
+# two launches at once (two `claude` in the same repo): different names, each attached to its own pane
+spawn17p() {
+  TMUX=dummy COCKPIT_PROJECTS_DIR=$P17 nvim --headless -u NONE -i NONE --cmd "set rtp^=$NVIM_CFG" \
+    -l "$NVIM_CFG/scripts/cockpit-spawn.lua" -- "$NVIM_CFG" </dev/null >"$T/s17$1.out" 2>"$T/s17$1.err"
+}
+spawn17p x &
+PX=$!
+spawn17p y &
+PY=$!
+wait "$PX" "$PY" || true # not a bare wait: the ckspike server is a background job too
+read -r N17X PANE17X TERM17X <"$T/s17x.out" || true
+read -r N17Y PANE17Y TERM17Y <"$T/s17y.out" || true
+[ -n "$N17X" ] && [ -n "$N17Y" ] || { cat "$T/s17x.err" "$T/s17y.err"; fail "concurrent spawn printed '$N17X' / '$N17Y'"; }
+[ "$N17X" != "$N17Y" ] && [ "$PANE17X" != "$PANE17Y" ] || fail "concurrent spawns share an agent: $N17X@$PANE17X / $N17Y@$PANE17Y"
+for k in x y; do
+  read -r n_ p_ t_ <"$T/s17$k.out"
+  J=$("${H[@]}" agent get "$n_") || fail "$n_ not live"
+  [ "$(jget 'd["result"]["agent"]["pane_id"]' <<<"$J")" = "$p_" ] || fail "$n_ is not in the pane its spawn printed ($p_)"
+  [ "$(jget 'd["result"]["agent"]["terminal_id"]' <<<"$J")" = "$t_" ] || fail "$n_ terminal_id mismatch"
+done
+"${H[@]}" pane close "$PANE17X" >/dev/null
+"${H[@]}" pane close "$PANE17Y" >/dev/null
+ok "two concurrent spawns -> $N17X and $N17Y, each in its own pane"
+# the launcher marks the attach for the Stop hook: ATTACH_DIR/<terminal_id> = its $TMUX_PANE, removed after
+REAL_HERDR=$(command -v herdr)
+mkdir -p "$T/bin17h"
+cat >"$T/bin17h/herdr" <<SH
+#!/bin/sh
+case " \$* " in
+*" agent attach "*) ls "\$COCKPIT_ATTACH_DIR" >"$T/att17.ls"; cat "\$COCKPIT_ATTACH_DIR"/* >"$T/att17.cat"; exit 0 ;;
+esac
+exec "$REAL_HERDR" "\$@"
+SH
+chmod +x "$T/bin17h/herdr"
+(cd "$NVIM_CFG" && TMUX=dummy TMUX_PANE=%77 PATH="$T/bin17h:$PATH" COCKPIT_PROJECTS_DIR=$P17 COCKPIT_ATTACH_DIR="$T/att17" \
+  "$NVIM_CFG/scripts/cockpit-claude" </dev/null >"$T/l17.out" 2>"$T/l17.err") || { cat "$T/l17.err"; fail "launcher exited non-zero"; }
+[ "$(cat "$T/att17.cat" 2>/dev/null)" = "%77" ] || { cat "$T/l17.err"; fail "no attach marker with %77 during attach: '$(cat "$T/att17.cat" 2>/dev/null)'"; }
+TERM17L=$(cat "$T/att17.ls")
+[[ $TERM17L == term_* ]] || fail "attach marker not named by terminal_id: $TERM17L"
+[ -z "$(ls -A "$T/att17")" ] || fail "attach marker left behind: $(ls -A "$T/att17")"
+PANE17L=$("${H[@]}" agent list | python3 -c '
+import sys, json
+print(next(a["pane_id"] for a in json.load(sys.stdin)["result"]["agents"] if a.get("terminal_id") == sys.argv[1]))
+' "$TERM17L") || fail "launcher agent $TERM17L not live"
+"${H[@]}" pane close "$PANE17L" >/dev/null
+ok "launcher: attach marker $TERM17L = %77 while attached, removed after"
 # worktrees resolve to their main repo (temp repo, no herdr)
 R17=$T/r17
 git init -q "$R17" && git -C "$R17" commit -q --allow-empty -m init && git -C "$R17" worktree add -q "$R17/.wt" -b wt17 2>/dev/null
@@ -833,16 +950,21 @@ ok "COCKPIT_NO_HERDR=1 cockpit-claude --version -> $V17 (no herdr)"
 (cd "$NVIM_CFG/lua" && TMUX=dummy FOO17=bar17 COCKPIT_PROJECTS_DIR=$P17 nvim --headless -u NONE -i NONE \
   --cmd "set rtp^=$NVIM_CFG" -l "$NVIM_CFG/scripts/cockpit-spawn.lua" -- "$PWD" --append-system-prompt "a b" \
   </dev/null >"$T/s17c.out" 2>"$T/s17.err") || { cat "$T/s17.err"; fail "spawn from subdir"; }
-read -r N17C PANE17C <"$T/s17c.out"
+read -r N17C PANE17C _ <"$T/s17c.out"
 CWD17=$("${H[@]}" agent get "$N17C" | jget 'd["result"]["agent"]["cwd"]')
 [ "$CWD17" = "$NVIM_CFG/lua" ] || fail "$N17C cwd $CWD17, want $NVIM_CFG/lua"
-PID17=$("${H[@]}" pane process-info --pane "$PANE17C" | python3 -c '
+# the launcher returns at launch (no readiness wait): give claude a moment to become the foreground process
+for _ in $(seq 30); do
+  PID17=$("${H[@]}" pane process-info --pane "$PANE17C" | python3 -c '
 import sys, json
 procs = json.load(sys.stdin)["result"]["process_info"]["foreground_processes"]
 hit = [p for p in procs if "a b" in (p.get("argv") or []) and "--append-system-prompt" in p["argv"]]
 assert hit, [p.get("argv") for p in procs]
 print(hit[0]["pid"])
-') || fail "$N17C argv lost the spaced arg"
+' 2>"$T/p17.err") && break
+  sleep 0.5
+done
+[ -n "${PID17:-}" ] || { cat "$T/p17.err"; fail "$N17C argv lost the spaced arg"; }
 ps -wwE -p "$PID17" | grep -q "FOO17=bar17" || fail "$N17C env lacks FOO17"
 ! ps -wwE -p "$PID17" | grep -q "TMUX=dummy" || fail "$N17C env leaked TMUX"
 "${H[@]}" pane close "$PANE17C" >/dev/null
@@ -856,5 +978,67 @@ O17=$(cd "$T/nogit17" && TMUX=dummy PATH="$T/bin17:$PATH" COCKPIT_HERDR_SESSION=
 [ ! -e ~/.config/herdr/sessions/ck17none ] || fail "non-git bypass touched herdr"
 ok "non-git dir: silent plain claude, no herdr"
 [ "$LAST" -le 17 ] && exit 0
+
+# --- 18: rail `s` spawns into the row's project; launcher spawn skips the readiness wait (headless) -----
+echo "18: rail s + non-interactive start"
+cat >"$T/t18.lua" <<'LUA'
+vim.env.COCKPIT_HERDR_SESSION = "ck18none" -- no herdr: agents are stubbed
+local h, store, registry, projects = require("cockpit.herdr"), require("cockpit.inbox.store"), require("cockpit.registry"), require("cockpit.projects")
+require("cockpit.inbox").setup()
+local ui, rail = require("cockpit.inbox.ui"), require("cockpit.inbox.rail")
+projects.save({ name = "s18", repos = { vim.env.NVIM_CFG } })
+projects.save({ name = "s18b", repos = { vim.env.NVIM_CFG } })
+registry.append("s18", { name = "s18-old", terminal_id = "term_d18", project = "s18" })
+h.agents = function()
+  return { ["s18b-1"] = { name = "s18b-1", target = "s18b-1", project = "s18b", status = "idle", terminal_id = "term_l18", pane_id = "p18" } }
+end
+local function seed(id, project, tid)
+  store.append(store.thread_file(id), { kind = "message", title = id, project = project, text = "x", ts = os.time(),
+    session = tid and { herdr = { terminal_id = tid } } or { agent = "a" } })
+end
+seed("t18l", "s18b", "term_l18")
+seed("t18d", "s18", "term_d18")
+seed("t18o", nil, nil)
+local spawned
+ui.spawn = function(p) spawned = p == nil and "PICK" or p end
+ui.open()
+local buf = vim.fn.bufnr("cockpit://rail")
+local win = vim.fn.win_findbuf(buf)[1]
+vim.api.nvim_set_current_win(win)
+vim.cmd("normal! zR")
+local want = { header = "PICK", ["p:s18"] = "s18", ["past:s18"] = "s18", ["a:term_d18"] = "s18", ["t:t18d"] = "s18",
+  ["p:s18b"] = "s18b", ["a:term_l18"] = "s18b", ["t:t18l"] = "s18b", unassigned = "PICK", ["t:t18o"] = "PICK" }
+for key, exp in pairs(want) do
+  local row = rail.row(buf, key)
+  assert(row, "no row " .. key .. ":\n" .. table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n"))
+  vim.api.nvim_win_set_cursor(win, { row, 0 })
+  spawned = nil
+  vim.cmd("normal s")
+  assert(spawned == exp, ("s on %s spawned %s, want %s"):format(key, tostring(spawned), exp))
+end
+print("T18a OK")
+
+-- start_in with interactive = false (the launcher): registers at launch and returns, no agent.wait
+local calls = {}
+h.request = function(method, params, cb)
+  calls[#calls + 1] = method
+  local res = method == "agent.get" and { agent = { name = params.target, terminal_id = "term_s18", pane_id = "p18", agent_status = "working" } } or {}
+  if cb then
+    vim.schedule(function() cb(nil, res) end)
+    return
+  end
+  return nil, res
+end
+local got
+h.start_in("p18", "s18-9", {}, { project = "s18" }, function(err, name) got = { err = err, name = name } end, { interactive = false })
+assert(vim.wait(5000, function() return got ~= nil end), "start_in never called back")
+assert(got.err == nil and got.name == "s18-9", vim.inspect(got))
+assert(not vim.tbl_contains(calls, "agent.wait"), "non-interactive start waited for readiness: " .. table.concat(calls, ","))
+assert(registry.all("s18").term_s18, "not registered at launch")
+print("T18 OK")
+LUA
+NVIM_CFG=$NVIM_CFG nlua "$T/t18.lua" 2>&1 | tee "$T/t18.out" | grep -q "T18 OK" || { cat "$T/t18.out"; fail "section 18"; }
+ok "rail s: project/past/agent/thread rows spawn into their project, header/unassigned pick; launcher start registers without waiting"
+[ "$LAST" -le 18 ] && exit 0
 
 echo "all sections passed"

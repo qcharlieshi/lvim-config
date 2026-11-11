@@ -395,7 +395,10 @@ def turn_activity(transcript):
         0,
     )
     prompt = human_text(entries[start]) if entries else ""
-    reply_thread = (m := re.search(r"Inbox reply on thread (\S+?)\.", prompt or "")) and m.group(1)
+    # Only the exact trigger store.lua's deliver() sends, and only for a thread that exists: the prompt is
+    # untrusted text, and a quoted path or regex must never become a file the hook appends to
+    m = re.match(r"Inbox reply on thread ([A-Za-z0-9_-]+)\. Run:", prompt or "")
+    reply_thread = m.group(1) if m and (THREADS / f"{m.group(1)}.jsonl").is_file() else None
     posted, edited = False, []
     for e in entries[start:]:
         if e.get("type") != "assistant":
@@ -426,6 +429,22 @@ def watching(pane):
     return len(out) == 4 and out[0] == pane and out[1:3] == ["1", "1"] and out[3] != "0"
 
 
+ATTACHED = Path(os.environ.get("COCKPIT_ATTACH_DIR", "~/.cockpit/attached")).expanduser()
+
+
+def attached_tmux_pane():
+    """The tmux pane a `claude` launcher (scripts/cockpit-claude) has attached to this herdr agent, if any:
+    the launcher writes ATTACHED/<terminal_id> containing its $TMUX_PANE for the duration of the attach."""
+    ident = herdr_identity() or {}
+    tid = ident.get("terminal_id")
+    if not tid or not re.fullmatch(r"[A-Za-z0-9_-]+", tid):
+        return None
+    try:
+        return (ATTACHED / tid).read_text().strip() or None
+    except OSError:
+        return None
+
+
 def hook_stop(payload):
     """
     Route an unattended stop to the inbox:
@@ -436,10 +455,13 @@ def hook_stop(payload):
       anything else (status chatter) -> allow, posting nothing
     """
     tmux_pane = os.environ.get("TMUX_PANE")
-    # herdr panes are headless and herdr exposes no "client attached" signal: always unwatched
     pane = tmux_pane or os.environ.get("HERDR_PANE_ID")
     if not pane or os.environ.get("COCKPIT_INBOX_HOOK") == "0" or payload.get("stop_hook_active"):
         return None
+    # herdr panes are headless: watched only while a `claude` launcher has it attached in a tmux pane
+    # (attach marker), and then exactly when that tmux pane is
+    if not tmux_pane:
+        tmux_pane = attached_tmux_pane()
     if tmux_pane and watching(tmux_pane):
         return None
     posted, edited, reply_thread = turn_activity(payload.get("transcript_path"))
@@ -464,7 +486,9 @@ def hook_stop(payload):
     if not text:
         return None
     last_line = text.splitlines()[-1].strip()
-    if not reply_thread and not last_line.endswith("?"):
+    # markdown wrapping hides the '?': **Which one?**, `x?`, (which?)
+    asks = last_line.rstrip("*_`) \t").endswith("?")
+    if not reply_thread and not asks:
         return None
     tid = reply_thread or f"session-{(payload.get('session_id') or 'unknown')[:8]}"
     path = THREADS / f"{tid}.jsonl"
@@ -473,7 +497,7 @@ def hook_stop(payload):
         "from": "agent",
         "text": text,
         "attachments": [],
-        "questions": [{"id": "q1", "text": last_line, "options": []}] if last_line.endswith("?") else [],
+        "questions": [{"id": "q1", "text": last_line, "options": []}] if asks else [],
         "session": {k: v for k, v in session().items() if v is not None},
     }
     if not path.exists():

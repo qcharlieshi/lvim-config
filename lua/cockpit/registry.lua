@@ -8,7 +8,7 @@ end
 
 function M.append(project, rec)
   rec = vim.tbl_extend("force", rec, { ts = os.time() })
-  vim.fn.mkdir(vim.fs.dirname(file(project)), "p")
+  pcall(vim.fn.mkdir, vim.fs.dirname(file(project)), "p") -- racy with a concurrent launch
   local f = assert(io.open(file(project), "a"))
   f:write(vim.json.encode(rec), "\n")
   f:close()

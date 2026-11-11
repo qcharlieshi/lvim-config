@@ -35,8 +35,9 @@ end
 
 function M.save(p)
   local root = M.root(p.name)
-  vim.fn.mkdir(root .. "/repos", "p")
-  vim.fn.mkdir(root .. "/threads", "p")
+  -- pcall: two `claude` launches may create the same project at once (mkdir -p is racy in nvim)
+  pcall(vim.fn.mkdir, root .. "/repos", "p")
+  pcall(vim.fn.mkdir, root .. "/threads", "p")
   local home = vim.fn.expand("~")
   local repos = vim.tbl_map(function(r)
     return r:sub(1, #home) == home and ("~" .. r:sub(#home + 1)) or r

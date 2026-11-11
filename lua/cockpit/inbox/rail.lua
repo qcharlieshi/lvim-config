@@ -368,6 +368,21 @@ local function agent_of(buf, node)
   end
 end
 
+-- the project a row belongs to, or nil (header, unassigned rows, project-less agents/threads)
+local function project_of(node)
+  if not node then
+    return nil
+  elseif node.kind == "project" then
+    return node.name
+  elseif node.kind == "past" then
+    return node.project
+  elseif node.kind == "agent" then
+    return (node.rec and node.rec.project) or (node.agent and node.agent.project)
+  elseif node.kind == "thread" then
+    return node.thread.project
+  end
+end
+
 ---------------------------------------------------------------------------
 -- Actions
 ---------------------------------------------------------------------------
@@ -491,6 +506,12 @@ local HELP = {
 -- :CockpitCleanup — float of unarchived threads whose agent is gone; y archives them all, q cancels.
 function M.cleanup()
   local herdr = require("cockpit.herdr")
+  -- an empty cache only means "dead" once herdr has answered; otherwise every herdr thread would look dead
+  if not herdr.reconciled() then
+    herdr.reconcile()
+    return vim.notify("cockpit: herdr not reachable (or not checked yet) — can't tell which agents are dead; try again",
+      vim.log.levels.WARN)
+  end
   local panes
   local function pane_alive(p)
     if not panes then
@@ -625,7 +646,9 @@ function M.attach(buf)
     ui().refresh()
   end, "Cockpit: refresh")
   map(buf, "s", function()
-    ui().spawn()
+    local p = project_of(cursor_node(buf))
+    -- no defined project on this row (header, unassigned, a thread from an undefined project): pick one
+    ui().spawn((p and require("cockpit.projects").get(p)) and p or nil)
   end, "Spawn agent")
   map(buf, "A", function()
     ui().pick_agent()
