@@ -237,18 +237,21 @@ end, 100000)
 assert(vim.fn.glob(store.path("threads", "*-s6.jsonl")) ~= "", "agent did not post s6")
 ui.open()
 local rail = vim.fn.bufnr("cockpit://rail")
-local function line_after_title()
-  local lines = vim.api.nvim_buf_get_lines(rail, 0, -1, false)
-  for i, l in ipairs(lines) do
-    if l:find("s6", 1, true) then return lines[i + 1] or "" end
+-- one line per row: the agent's own row carries its status glyph (○ idle, ✕ dead)
+local function agent_line()
+  for _, l in ipairs(vim.api.nvim_buf_get_lines(rail, 0, -1, false)) do
+    if l:find(" " .. name .. " ", 1, true) or l:sub(-#name - 1) == " " .. name then return l end
   end
   return ""
 end
-assert(vim.wait(10000, function() ui.refresh(); return line_after_title():find("○", 1, true) ~= nil end, 500),
-  "no idle glyph: " .. line_after_title())
+local function has_s6()
+  return vim.iter(vim.api.nvim_buf_get_lines(rail, 0, -1, false)):any(function(l) return l:find("s6", 1, true) ~= nil end)
+end
+assert(vim.wait(10000, function() ui.refresh(); return has_s6() and agent_line():find("○", 1, true) ~= nil end, 500),
+  "no idle glyph: " .. agent_line())
 h.kill(name)
-assert(vim.wait(10000, function() return line_after_title():find("✕", 1, true) ~= nil end, 200),
-  "no offline glyph after kill: " .. line_after_title())
+assert(vim.wait(10000, function() return agent_line():find("✕", 1, true) ~= nil end, 200),
+  "no offline glyph after kill: " .. agent_line())
 for lhs, desc in pairs({ s = "Spawn agent", X = "Kill agent", i = "Interrupt agent", gt = "Attach to agent", A = "Agent picker" }) do
   local m = vim.api.nvim_buf_call(rail, function() return vim.fn.maparg(lhs, "n", false, true) end)
   assert(m.desc == desc, lhs .. " desc " .. tostring(m.desc))
@@ -257,7 +260,7 @@ assert(vim.fn.exists(":CockpitSpawn") == 2 and vim.fn.exists(":CockpitAgent") ==
 print("T6 OK")
 LUA
 CLI=$CLI nlua "$T/t6.lua" 2>&1 | tee "$T/t6.out" | grep -q "T6 OK" || { cat "$T/t6.out"; fail "section 6"; }
-ok "rail shows ○ for a live idle agent, ✕ after kill; s X i gt A mapped; :CockpitSpawn/:CockpitAgent exist"
+ok "rail agent row shows ○ while idle, ✕ after kill (one-line rows); s X i gt A mapped; :CockpitSpawn/:CockpitAgent exist"
 [ "$LAST" -le 6 ] && exit 0
 
 # --- 7: review fixes — refresh timer lifecycle, own workspaces only, no tmux leak ------------------
@@ -413,5 +416,67 @@ LUA
 nlua "$T/t10.lua" 2>&1 | tee "$T/t10.out" | grep -q "T10 OK" || { cat "$T/t10.out"; fail "section 10"; }
 ok "tree.build orders project > agent > forks > threads, orphans, past, unassigned; archived gated"
 [ "$LAST" -le 10 ] && exit 0
+
+# --- 11: rail — project tree, folds survive refresh, kill archives ------------------------------------
+echo "11: rail tree + folds + kill-archive"
+cat >"$T/t11.lua" <<'LUA'
+local h, store, registry = require("cockpit.herdr"), require("cockpit.inbox.store"), require("cockpit.registry")
+require("cockpit.inbox").setup()
+local ui, rail = require("cockpit.inbox.ui"), require("cockpit.inbox.rail")
+local function await(fn, ms)
+  local got
+  fn(function(...) got = { ... } end)
+  assert(vim.wait(ms or 90000, function() return got ~= nil end, 50), "timed out")
+  return unpack(got)
+end
+local function lines(buf) return vim.api.nvim_buf_get_lines(buf, 0, -1, false) end
+-- 1. an empty project still gets a row (Review Focus 1)
+require("cockpit.projects").save({ name = "r", repos = { vim.env.NVIM_CFG } })
+ui.open()
+local buf = vim.fn.bufnr("cockpit://rail")
+local win = vim.fn.win_findbuf(buf)[1]
+assert(vim.iter(lines(buf)):any(function(l) return l:match("^▾ r%s*$") ~= nil end), "no ▾ r row:\n" .. table.concat(lines(buf), "\n"))
+-- 2. smoke → agent → s11, one line each
+local err, name = await(function(cb) h.spawn("smoke", nil, cb) end)
+assert(not err, vim.inspect(err))
+local tid = h.agents()[name].terminal_id
+local cmd = ("python3 %s post --title s11 --text hi"):format(vim.env.CLI)
+await(function(cb)
+  h.request("agent.prompt", { target = name, text = "Run exactly this bash command, then reply done: " .. cmd, wait = { timeout_ms = 90000 } }, cb)
+end, 100000)
+local f = vim.fn.glob(store.path("threads", "*-s11.jsonl"), false, true)[1]
+assert(f, "agent did not post s11")
+local sid = vim.fn.fnamemodify(f, ":t:r")
+local function row(key) ui.refresh_rail(); return rail.row(buf, key) end
+assert(vim.wait(10000, function() return row("t:" .. sid) ~= nil end, 200), "s11 never in rail")
+local pr = row("p:smoke")
+assert(rail.row(buf, "a:" .. tid) == pr + 1 and rail.row(buf, "t:" .. sid) == pr + 2,
+  "not consecutive:\n" .. table.concat(lines(buf), "\n"))
+local L = lines(buf)
+assert(L[pr]:match("^▾ smoke") and L[pr + 1]:find(name, 1, true) and L[pr + 2]:find("s11", 1, true),
+  "rows:\n" .. table.concat(lines(buf), "\n"))
+local past = rail.row(buf, "past:smoke")
+assert(past and vim.api.nvim_win_call(win, function() return vim.fn.foldclosed(past) end) == past, "past:smoke not folded by default")
+-- 3. zc on the agent survives a reconcile + re-render; cursor stays on the agent node (Review Focus 3)
+vim.api.nvim_set_current_win(win)
+vim.api.nvim_win_set_cursor(win, { pr + 1, 0 })
+vim.cmd("normal zc")
+assert(vim.fn.foldclosed(pr + 1) == pr + 1, "zc did not close the agent fold")
+vim.wait(3500)
+ui.refresh_rail()
+local ar = rail.row(buf, "a:" .. tid)
+assert(vim.fn.foldclosed(ar) == ar, "agent fold reopened after refresh")
+assert(rail.row(buf, "a:" .. tid) == vim.api.nvim_win_get_cursor(win)[1], "cursor left the agent node")
+-- 4. kill → archive its threads, registry dead = true
+vim.fn.confirm = function() return 1 end
+rail.kill_agent(rail.node(buf, ar))
+assert(store.thread(sid).archived, "s11 not archived")
+assert(registry.all("smoke")[tid].dead == true, "registry not dead: " .. vim.inspect(registry.all("smoke")[tid]))
+assert(vim.wait(10000, function() return h.by_terminal(tid) == nil end, 100), "agent still live")
+print("T11 OK")
+LUA
+CLI=$CLI NVIM_CFG=$NVIM_CFG nlua "$T/t11.lua" 2>&1 | tee "$T/t11.out" | grep -q "T11 OK" || { cat "$T/t11.out"; fail "section 11"; }
+ok "rail: empty project row; smoke > agent > s11 one line each; folds + cursor survive refresh; kill archives + registry dead"
+[ "$LAST" -le 11 ] && exit 0
 
 echo "all sections passed"

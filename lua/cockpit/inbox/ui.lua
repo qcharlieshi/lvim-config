@@ -3,25 +3,19 @@
 -- nothing opens tabs or splits except the transient reply composer and CodeDiff (own tab).
 -- Every view is re-rendered from store; the only UI-held truth is unsent answers/reply text.
 local store = require("cockpit.inbox.store")
+local util = require("cockpit.inbox.util")
+local rail = require("cockpit.inbox.rail")
 local M = {}
 
-local ns = vim.api.nvim_create_namespace("cockpit_inbox")
+local ns = util.ns
 local ns_edit = vim.api.nvim_create_namespace("cockpit_inbox_edits")
 local views = {} -- buf -> { kind, map, tid, att, ... }
 local drafts = {} -- tid -> { answers = { [qkey] = { opt = true } }, verdict, text }
-local ck = { last_att = {} } -- cockpit tab: tab, rail, work, thread (wins), tid, show_archived
+local ck = { last_att = {} } -- cockpit tab: tab, rail, work, thread (wins), tid
 
 local RAIL_W, THREAD_H = 36, 14
 
-local STATUS = {
-  needs_you = { "✋", "DiagnosticWarn", "waiting on you" },
-  unread = { "●", "DiagnosticInfo", "unread" },
-  working = { "⟳", "DiagnosticInfo", "agent working" },
-  replied = { "↩", "Comment", "replied" },
-  read = { "○", "Comment", "" },
-  done = { "✓", "DiagnosticOk", "done" },
-}
-local RANK = { needs_you = 1, unread = 2, working = 3, replied = 4, read = 5, done = 6 }
+local STATUS = util.STATUS
 local STRIP = {
   done = { "●", "DiagnosticOk" },
   needs_you = { "◉", "DiagnosticWarn" },
@@ -34,82 +28,17 @@ local VERDICTS = {
   changes_requested = "changes requested",
   reject = "rejected",
 }
--- herdr agent status for a run's producer (only for runs posted from a herdr pane)
-local AGENT = {
-  working = { "◐", "DiagnosticInfo" },
-  blocked = { "⚠", "DiagnosticWarn" },
-  idle = { "○", "Comment" },
-  done = { "○", "Comment" },
-  unknown = { "?", "Comment" },
-  offline = { "✕", "DiagnosticError" },
-}
-
-local function run_agent(t)
-  local hid = t.session and t.session.herdr
-  return hid and require("cockpit.herdr").by_terminal(hid.terminal_id)
-end
-
 local LANE_NAMES =
   { backlog = "Backlog", todo = "Todo", in_progress = "In progress", in_review = "In review", done = "Done" }
 
-local function ago(ts)
-  local d = os.time() - (ts or os.time())
-  if d < 60 then
-    return d .. "s"
-  elseif d < 3600 then
-    return math.floor(d / 60) .. "m"
-  elseif d < 86400 then
-    return math.floor(d / 3600) .. "h"
-  end
-  return math.floor(d / 86400) .. "d"
-end
-
-local function trunc(s, n)
-  s = (s or ""):gsub("\n", " ")
-  return vim.fn.strchars(s) > n and vim.fn.strcharpart(s, 0, n - 1) .. "…" or s
-end
+local ago, trunc = util.ago, util.trunc
 
 local function draft(tid)
   drafts[tid] = drafts[tid] or { answers = {} }
   return drafts[tid]
 end
 
-local function find_buf(name)
-  for _, b in ipairs(vim.api.nvim_list_bufs()) do
-    if vim.api.nvim_buf_get_name(b) == name then
-      return b
-    end
-  end
-end
-
-local function scratch(name, ft, buftype)
-  local buf = find_buf(name)
-  if not buf then
-    buf = vim.api.nvim_create_buf(true, true)
-    vim.api.nvim_buf_set_name(buf, name)
-    vim.bo[buf].buftype = buftype or "nofile"
-    vim.bo[buf].bufhidden = "hide"
-    vim.bo[buf].swapfile = false
-    vim.bo[buf].filetype = ft
-  end
-  return buf
-end
-
-local function set_lines(buf, lines)
-  vim.bo[buf].modifiable = true
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-  vim.bo[buf].modifiable = false
-  vim.bo[buf].modified = false
-  vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
-end
-
-local function hl(buf, row, col, end_col, group)
-  vim.api.nvim_buf_set_extmark(buf, ns, row, col, { end_col = end_col, hl_group = group })
-end
-
-local function map(buf, lhs, fn, desc, mode)
-  vim.keymap.set(mode or "n", lhs, fn, { buffer = buf, nowait = true, silent = true, desc = desc })
-end
+local find_buf, scratch, set_lines, hl, map = util.find_buf, util.scratch, util.set_lines, util.hl, util.map
 
 local function cursor_item(buf)
   local v = views[buf]
@@ -124,27 +53,7 @@ local function win_for(buf)
   end
 end
 
--- A line built from { text, hl } segments; returns the text and its highlight marks
-local function segs(row, parts, marks)
-  local text, col = "", 0
-  for _, p in ipairs(parts) do
-    if p[2] then
-      marks[#marks + 1] = { row, col, col + #p[1], p[2] }
-    end
-    text = text .. p[1]
-    col = col + #p[1]
-  end
-  return text
-end
-
-local function run_status(t)
-  if t.done then
-    return "done"
-  elseif t.stage and t.status == "replied" then
-    return "working"
-  end
-  return t.status
-end
+local segs, run_status = util.segs, util.run_status
 
 ---------------------------------------------------------------------------
 -- Cockpit layout
@@ -241,83 +150,9 @@ end
 -- Runs rail
 ---------------------------------------------------------------------------
 
+-- The rail lives in rail.lua; these wrappers keep select()/refresh()/init.lua callers unchanged
 function M.render_rail(buf)
-  local v = views[buf]
-  local threads = vim.tbl_filter(function(t)
-    return ck.show_archived or not t.archived
-  end, store.threads())
-  for _, t in ipairs(threads) do
-    t.run_status = run_status(t)
-  end
-  table.sort(threads, function(a, b)
-    if a.project ~= b.project then
-      return (a.project or "") < (b.project or "")
-    end
-    if RANK[a.run_status] ~= RANK[b.run_status] then
-      return RANK[a.run_status] < RANK[b.run_status]
-    end
-    return a.last_ts > b.last_ts
-  end)
-
-  local counts = { needs_you = 0, working = 0 }
-  for _, t in ipairs(threads) do
-    counts[t.run_status] = (counts[t.run_status] or 0) + 1
-  end
-  local lines, marks, item_map, rows = {}, {}, {}, {}
-  lines[1] = segs(0, {
-    { " RUNS ", "Title" },
-    { ("✋%d"):format(counts.needs_you), counts.needs_you > 0 and "DiagnosticWarn" or "Comment" },
-    { "  " },
-    { ("⟳%d"):format(counts.working), counts.working > 0 and "DiagnosticInfo" or "Comment" },
-    { ck.show_archived and "  +archived" or "", "Comment" },
-  }, marks)
-  local project
-  for _, t in ipairs(threads) do
-    if t.project ~= project then
-      project = t.project
-      lines[#lines + 1] = ""
-      lines[#lines + 1] = segs(#lines, { { "── " .. (project or "?") .. " ──", "Directory" } }, marks)
-    end
-    local s = STATUS[t.run_status]
-    local sel = t.id == ck.tid
-    lines[#lines + 1] = segs(#lines, {
-      { sel and "▸" or " ", "Special" },
-      { s[1] .. " ", s[2] },
-      { trunc(t.title or t.id, RAIL_W - 6), (t.run_status == "done" or t.archived) and "Comment" or nil },
-    }, marks)
-    item_map[#lines] = t
-    rows[t.id] = #lines
-    local second = { { "    " } }
-    if t.stage then
-      for i, st in ipairs(store.strip(t)) do
-        if i > 1 then
-          second[#second + 1] = { "─", "Comment" }
-        end
-        second[#second + 1] = STRIP[st.state]
-      end
-      second[#second + 1] = { ("  %s r%d"):format(t.stage, t.round), s[2] }
-    else
-      second[#second + 1] = { s[3] ~= "" and s[3] or "message", "Comment" }
-    end
-    if t.session and t.session.herdr then
-      local a = run_agent(t)
-      local g = AGENT[a and a.status or "offline"] or AGENT.unknown
-      second[#second + 1] = { "  " .. g[1], g[2] }
-    end
-    second[#second + 1] = { "  " .. ago(t.last_ts), "Comment" }
-    lines[#lines + 1] = segs(#lines, second, marks)
-    item_map[#lines] = t
-  end
-  if #threads == 0 then
-    lines[#lines + 1] = ""
-    lines[#lines + 1] = "  (empty — agents post with"
-    lines[#lines + 1] = "   scripts/cockpit_inbox.py post)"
-  end
-  set_lines(buf, lines)
-  for _, m in ipairs(marks) do
-    hl(buf, m[1], m[2], m[3], m[4])
-  end
-  v.map, v.rows = item_map, rows
+  rail.render(buf)
 end
 
 function M.rail_buf()
@@ -327,51 +162,7 @@ function M.rail_buf()
   end
   views[buf] = { kind = "rail" }
   common_maps(buf)
-  map(buf, "<CR>", function()
-    local t = cursor_item(buf)
-    if t then
-      M.select(t.id)
-    end
-  end, "Open run")
-  map(buf, "a", function()
-    local t = cursor_item(buf)
-    if t then
-      store.append(store.thread_file(t.id), { kind = "state", archived = not t.archived })
-      M.refresh()
-    end
-  end, "Archive / unarchive")
-  map(buf, "u", function()
-    local t = cursor_item(buf)
-    if t then
-      store.append(store.thread_file(t.id), { kind = "state", read = t.status == "unread" })
-      M.refresh()
-    end
-  end, "Toggle unread")
-  map(buf, "g.", function()
-    ck.show_archived = not ck.show_archived
-    M.render_rail(buf)
-  end, "Toggle archived")
-  local function with_agent(fn)
-    return function()
-      local t = cursor_item(buf)
-      local a = t and run_agent(t)
-      if not a then
-        return vim.notify("cockpit: no live herdr agent for this run", vim.log.levels.WARN)
-      end
-      fn(a)
-    end
-  end
-  map(buf, "s", M.spawn, "Spawn agent")
-  map(buf, "A", M.pick_agent, "Agent picker")
-  map(buf, "X", with_agent(M.kill_agent), "Kill agent")
-  map(buf, "i", with_agent(function(a)
-    require("cockpit.herdr").interrupt(a.target)
-  end), "Interrupt agent")
-  map(buf, "gt", with_agent(function(a)
-    require("cockpit.herdr").attach(a.target)
-  end), "Attach to agent")
-  map(buf, "q", M.close, "Close cockpit")
-  M.render_rail(buf)
+  rail.attach(buf) -- after common_maps: rail's R (reconcile + refresh) wins
   return buf
 end
 
@@ -664,11 +455,14 @@ function M.select(tid, focus)
     vim.api.nvim_win_set_buf(ck.work, placeholder())
     vim.wo[ck.work].winbar = ""
   end
-  local rail = M.rail_buf()
-  M.render_rail(rail)
-  local row = views[rail].rows[tid]
+  local rail_buf = M.rail_buf()
+  M.render_rail(rail_buf)
+  local row = rail.row(rail_buf, "t:" .. tid)
   if row then
     vim.api.nvim_win_set_cursor(ck.rail, { row, 0 })
+    vim.api.nvim_win_call(ck.rail, function()
+      vim.cmd("silent! normal! zv")
+    end)
   end
   vim.api.nvim_set_current_win(focus or ck.rail)
 end
@@ -1316,12 +1110,9 @@ end
 -- Agents (herdr)
 ---------------------------------------------------------------------------
 
+-- a rail agent node or a herdr cache entry
 function M.kill_agent(a)
-  local label = ("Kill %s (%s)?"):format(a.target, a.status or "?")
-  if vim.fn.confirm(label, "&Yes\n&No", 2) == 1 then
-    local err = require("cockpit.herdr").kill(a.target)
-    vim.notify(err and ("cockpit: kill failed — " .. err.message) or ("cockpit: killed " .. a.target))
-  end
+  rail.kill_agent(a)
 end
 
 function M.spawn(project)
