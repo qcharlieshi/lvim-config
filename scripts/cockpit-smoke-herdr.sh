@@ -715,7 +715,7 @@ local tid = "f15"
 store.append(store.thread_file(tid), { kind = "message", title = "f15", project = "smoke", text = "x", ts = os.time(),
   attachments = { { name = "doc.md", type = "markdown", sha256 = md }, { name = "x.diff", type = "diff", sha256 = df } } })
 local calls = {}
-review.open = function(t, att) calls[#calls + 1] = { t, att.name } end
+review.open = function(t, att) calls[#calls + 1] = { t, att.name }; vim.cmd("tabnew") end -- real tab switch, like CodeDiff
 ui.select(tid)
 local listed = {}
 for _, b in ipairs(vim.api.nvim_list_bufs()) do
@@ -729,7 +729,18 @@ assert(vim.deep_equal(listed, want), "listed buffers: " .. vim.inspect(listed))
 local tid2 = "g15"
 store.append(store.thread_file(tid2), { kind = "message", title = "g15", project = "smoke", text = "x", ts = os.time(),
   attachments = { { name = "y.diff", type = "diff", sha256 = df } } })
-ui.select(tid2)
+ui.select(tid2) -- internal re-select (no opts): must not open CodeDiff
+assert(#calls == 0, "internal select opened a diff: " .. vim.inspect(calls))
+local ck_tab = vim.api.nvim_get_current_tabpage()
+local proj = vim.fn.tempname()
+vim.fn.mkdir(proj, "p")
+ui.select(tid2, nil, { dir = proj, open_diff = true })
+assert(vim.api.nvim_get_current_tabpage() ~= ck_tab, "no tab switch")
+assert(vim.fn.getcwd(-1, vim.api.nvim_tabpage_get_number(ck_tab)) == vim.uv.fs_realpath(proj), "cockpit tab cwd: " .. vim.fn.getcwd(-1, vim.api.nvim_tabpage_get_number(ck_tab)))
+vim.api.nvim_set_current_tabpage(ck_tab)
+ui.select(tid2, nil, { dir = proj, open_diff = true }) -- second user select refocuses the existing tab
+assert(vim.api.nvim_get_current_tabpage() ~= ck_tab, "existing diff tab not focused")
+vim.api.nvim_set_current_tabpage(ck_tab)
 assert(#calls == 1 and calls[1][1] == tid2 and calls[1][2] == "y.diff", "review.open calls: " .. vim.inspect(calls))
 local bar
 for _, w in ipairs(vim.api.nvim_tabpage_list_wins(0)) do

@@ -432,8 +432,26 @@ end
 
 local attachment_buf -- defined with the workspace code below
 
+-- One CodeDiff tab per deliverable: reopening focuses it instead of stacking another
+local diff_tabs = {}
+local function open_diff(tid, att)
+  local key = tid .. "/" .. att.sha256
+  local tab = diff_tabs[key]
+  if tab and vim.api.nvim_tabpage_is_valid(tab) then
+    return vim.api.nvim_set_current_tabpage(tab)
+  end
+  local before = vim.api.nvim_get_current_tabpage()
+  require("cockpit.inbox.review").open(tid, att)
+  local now = vim.api.nvim_get_current_tabpage()
+  if now ~= before then
+    diff_tabs[key] = now
+  end
+end
+
 -- Load a run into the cockpit: thread below, its current deliverable (or the last one viewed) above
-function M.select(tid, focus)
+-- opts: { dir = tcd target for the cockpit tab, open_diff = auto-open a diff deliverable (user entry points only) }
+function M.select(tid, focus, opts)
+  opts = opts or {}
   local t = store.thread(tid)
   if not t then
     return vim.notify("cockpit: no thread " .. tid, vim.log.levels.WARN)
@@ -468,8 +486,11 @@ function M.select(tid, focus)
     ck.last_att[tid] = att
     local pb = placeholder()
     vim.api.nvim_win_set_buf(ck.work, pb)
-    map(pb, "<CR>", function()
-      require("cockpit.inbox.review").open(tid, auto_diff)
+    map(pb, "<CR>", function() -- shared buffer: resolve the current thread at press time
+      local a = ck.tid and ck.last_att[ck.tid]
+      if a and a.type == "diff" then
+        open_diff(ck.tid, a)
+      end
     end, "Reopen in CodeDiff")
     vim.wo[ck.work].winbar = "diff opened in CodeDiff · <CR> reopen"
   elseif att then
@@ -488,14 +509,19 @@ function M.select(tid, focus)
     end)
   end
   vim.api.nvim_set_current_win(focus or ck.rail)
-  if auto_diff then
-    require("cockpit.inbox.review").open(tid, auto_diff)
+  if opts.dir and vim.fn.isdirectory(opts.dir) == 1 then
+    vim.api.nvim_win_call(ck.rail, function()
+      vim.cmd.tcd(vim.fn.fnameescape(opts.dir)) -- before the CodeDiff tab steals focus
+    end)
+  end
+  if auto_diff and opts.open_diff then
+    open_diff(tid, auto_diff)
   end
 end
 
 -- `:Inbox <id>` and other entry points
 function M.open_thread(tid)
-  M.select(tid, nil)
+  M.select(tid, nil, { open_diff = true })
   if valid(ck.work) then
     vim.api.nvim_set_current_win(ck.work)
   end

@@ -373,12 +373,9 @@ end
 ---------------------------------------------------------------------------
 
 local function open_thread(t)
-  ui().select(t.id)
   local projects = require("cockpit.projects")
   local dir = (t.project and projects.get(t.project)) and projects.root(t.project) or (t.session and t.session.cwd)
-  if dir and vim.fn.isdirectory(dir) == 1 then
-    vim.cmd.tcd(vim.fn.fnameescape(dir))
-  end
+  ui().select(t.id, nil, { dir = dir, open_diff = true })
 end
 
 local function open(buf, node)
