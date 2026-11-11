@@ -20,13 +20,23 @@ if not cwd or not herdr.ensure() then
 end
 local project = require("cockpit.projects").for_dir(cwd)
 if not project then
-  die("not in a git repo")
+  die("not in a git repo") -- the launcher checks this first and bypasses silently
+end
+
+-- Claude sees the launcher's environment (API keys, venv, `FOO=bar claude`), minus the tmux/herdr/
+-- nvim bits that must not leak into a herdr pane; nvim adds VIMRUNTIME/MYVIMRC itself
+local env = {}
+for k, v in pairs(vim.fn.environ()) do
+  if not (k == "TMUX" or k == "TMUX_PANE" or k == "COCKPIT_NO_HERDR" or k == "VIMRUNTIME" or k == "MYVIMRC"
+    or k:match("^HERDR_") or k:match("^NVIM")) then
+    env[k] = v
+  end
 end
 
 local got
 herdr.spawn(project, nil, function(err, name, pane_id)
   got = { err = err, name = name, pane_id = pane_id }
-end, { args = argv, interactive = false })
+end, { args = argv, interactive = false, cwd = cwd, env = env })
 if not vim.wait(120000, function()
   return got ~= nil
 end, 50) then

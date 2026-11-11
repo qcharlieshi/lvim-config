@@ -303,8 +303,8 @@ M.free_name = free_name
 -- The pane to start an agent in: create the project's ck/ workspace and use its fresh root pane,
 -- or split a new pane into the existing one. Never reuses a pane cockpit didn't just create.
 -- Returns err, pane_id.
-local function project_pane(p, env)
-  local cwd = p.repos[1]
+local function project_pane(p, env, cwd)
+  cwd = cwd or p.repos[1]
   local _, wl = M.request("workspace.list", {})
   local ws
   for _, w in ipairs((wl or {}).workspaces or {}) do
@@ -392,6 +392,7 @@ end
 
 -- Start a Claude agent in `project`; cb(err, name, pane_id). opts.args: extra claude args (appended);
 -- opts.interactive = false: no attach prompt when blocked at startup (cb still gets the name).
+-- opts.cwd: the pane's cwd (default: the primary repo). opts.env: base pane env (COCKPIT_* win).
 function M.spawn(project, prompt, cb, opts)
   opts = opts or {}
   cb = cb or function() end
@@ -402,8 +403,8 @@ function M.spawn(project, prompt, cb, opts)
   if not p then
     return cb({ code = "no_project", message = "no project " .. project })
   end
-  local env = { COCKPIT_PROJECT = project, COCKPIT_INBOX_DIR = vim.env.COCKPIT_INBOX_DIR }
-  local err, pane_id = project_pane(p, env)
+  local env = vim.tbl_extend("force", opts.env or {}, { COCKPIT_PROJECT = project, COCKPIT_INBOX_DIR = vim.env.COCKPIT_INBOX_DIR })
+  local err, pane_id = project_pane(p, env, opts.cwd)
   if err then
     vim.notify("cockpit: spawn failed — " .. err.message, vim.log.levels.ERROR)
     return cb(err)

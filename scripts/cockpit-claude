@@ -3,7 +3,7 @@
 # to it in this tmux pane. Looks like plain claude, but shows in the cockpit rail, can be forked and
 # survives the pane. Every failure falls back to plain claude after one warning line.
 # Bypass: COCKPIT_NO_HERDR=1, not in tmux, already inside herdr, -p/--print/-v/--version/-h/--help,
-# or a subcommand / positional prompt (first arg not starting with -).
+# a subcommand / positional prompt (first arg not starting with -), or outside a git repo (silent).
 NVIM_CFG=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 
 plain() { exec claude "$@"; } # a script never sees the zsh claude() function: no recursion
@@ -14,6 +14,7 @@ warn() { printf 'cockpit-claude: %s — running plain claude\n' "$1" >&2; }
 for a in "$@"; do
   case $a in -p | --print | -v | --version | -h | --help) plain "$@" ;; esac
 done
+git rev-parse --show-toplevel >/dev/null 2>&1 || plain "$@" # no project to put it in: silently plain
 
 H=(herdr)
 [ -n "${COCKPIT_HERDR_SESSION:-}" ] && H+=(--session "$COCKPIT_HERDR_SESSION")
@@ -30,15 +31,24 @@ if [ $rc -ne 0 ] || [ -z "$name" ] || [ -z "$pane" ]; then
   plain "$@"
 fi
 
-live() { "${H[@]}" agent get "$name" >/dev/null 2>&1; }
+# agent state: live | gone (herdr says agent_not_found) | unknown (server slow/unreachable, other errors)
+state() {
+  local out
+  out=$("${H[@]}" agent get "$name" 2>&1) && {
+    echo live
+    return
+  }
+  case $out in *'"code":"agent_not_found"'*) echo gone ;; *) echo unknown ;; esac
+}
 
-# attach doesn't return when Claude exits (the pane's shell lives on): once the agent has been gone
-# for 3 s, close its pane, which ends the attach — no empty shell panes pile up
+# attach doesn't return when Claude exits (the pane's shell lives on): once herdr has reported the
+# agent not found 5 times in a row (1 s apart), close its pane, which ends the attach — no empty
+# shell panes pile up. Only an explicit agent_not_found counts; unknown neither counts nor resets.
 (
   misses=0
-  while [ $misses -lt 3 ]; do
+  while [ $misses -lt 5 ]; do
     sleep 1
-    if live; then misses=0; else misses=$((misses + 1)); fi
+    case $(state) in live) misses=0 ;; gone) misses=$((misses + 1)) ;; esac
   done
   "${H[@]}" pane close "$pane" >/dev/null 2>&1
 ) </dev/null >/dev/null 2>&1 &
@@ -49,10 +59,7 @@ arc=$?
 kill "$watcher" 2>/dev/null
 wait "$watcher" 2>/dev/null
 
-if live; then
-  # detached (or attach failed): the agent keeps running in herdr
-  [ $arc -ne 0 ] && printf 'cockpit-claude: attach failed — %s still running (herdr agent attach %s)\n' "$name" "$name" >&2
-  exit $arc
-fi
-"${H[@]}" pane close "$pane" >/dev/null 2>&1 # Claude exited: drop its pane if the watcher hasn't
-exit 0
+# attach returns on detach (agent keeps running in herdr) or when the watcher closed the pane
+[ "$(state)" = gone ] && exit 0
+[ $arc -ne 0 ] && printf 'cockpit-claude: attach ended — %s still running in herdr (herdr agent attach %s)\n' "$name" "$name" >&2
+exit $arc

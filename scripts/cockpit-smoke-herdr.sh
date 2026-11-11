@@ -829,6 +829,32 @@ V17=$(TMUX=dummy COCKPIT_NO_HERDR=1 COCKPIT_HERDR_SESSION=ck17none "$NVIM_CFG/sc
 [[ $V17 == *"Claude Code"* ]] || fail "bypass printed: $V17"
 [ ! -e ~/.config/herdr/sessions/ck17none ] || fail "bypass touched herdr"
 ok "COCKPIT_NO_HERDR=1 cockpit-claude --version -> $V17 (no herdr)"
+# launched from a subdirectory with a spaced arg and an exported var: pane cwd, argv and env follow
+(cd "$NVIM_CFG/lua" && TMUX=dummy FOO17=bar17 COCKPIT_PROJECTS_DIR=$P17 nvim --headless -u NONE -i NONE \
+  --cmd "set rtp^=$NVIM_CFG" -l "$NVIM_CFG/scripts/cockpit-spawn.lua" -- "$PWD" --append-system-prompt "a b" \
+  </dev/null >"$T/s17c.out" 2>"$T/s17.err") || { cat "$T/s17.err"; fail "spawn from subdir"; }
+read -r N17C PANE17C <"$T/s17c.out"
+CWD17=$("${H[@]}" agent get "$N17C" | jget 'd["result"]["agent"]["cwd"]')
+[ "$CWD17" = "$NVIM_CFG/lua" ] || fail "$N17C cwd $CWD17, want $NVIM_CFG/lua"
+PID17=$("${H[@]}" pane process-info --pane "$PANE17C" | python3 -c '
+import sys, json
+procs = json.load(sys.stdin)["result"]["process_info"]["foreground_processes"]
+hit = [p for p in procs if "a b" in (p.get("argv") or []) and "--append-system-prompt" in p["argv"]]
+assert hit, [p.get("argv") for p in procs]
+print(hit[0]["pid"])
+') || fail "$N17C argv lost the spaced arg"
+ps -wwE -p "$PID17" | grep -q "FOO17=bar17" || fail "$N17C env lacks FOO17"
+! ps -wwE -p "$PID17" | grep -q "TMUX=dummy" || fail "$N17C env leaked TMUX"
+"${H[@]}" pane close "$PANE17C" >/dev/null
+ok "spawn from nvim/lua: pane cwd = nvim/lua, --append-system-prompt \"a b\" one argv item, FOO17 forwarded, TMUX not"
+# non-git dir: silent plain claude (stub), no herdr session started
+mkdir -p "$T/bin17" "$T/nogit17"
+printf '#!/bin/sh\necho "PLAIN $*"\n' >"$T/bin17/claude" && chmod +x "$T/bin17/claude"
+O17=$(cd "$T/nogit17" && TMUX=dummy PATH="$T/bin17:$PATH" COCKPIT_HERDR_SESSION=ck17none "$NVIM_CFG/scripts/cockpit-claude" --model x 2>"$T/s17n.err")
+[ "$O17" = "PLAIN --model x" ] || fail "non-git launcher printed: $O17"
+[ ! -s "$T/s17n.err" ] || fail "non-git bypass warned: $(cat "$T/s17n.err")"
+[ ! -e ~/.config/herdr/sessions/ck17none ] || fail "non-git bypass touched herdr"
+ok "non-git dir: silent plain claude, no herdr"
 [ "$LAST" -le 17 ] && exit 0
 
 echo "all sections passed"
