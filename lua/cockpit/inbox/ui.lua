@@ -1,10 +1,11 @@
 -- cockpit UI: one tab, three fixed windows — runs rail (left) · workspace (deliverable under
 -- review, editable) · thread (bottom right). Selecting anything swaps buffers in those windows;
--- nothing opens tabs or splits except the transient reply composer and CodeDiff (own tab).
+-- nothing opens tabs or splits except CodeDiff (own tab); the reply composer and note input float.
 -- Every view is re-rendered from store; the only UI-held truth is unsent answers/reply text.
 local store = require("cockpit.inbox.store")
 local util = require("cockpit.inbox.util")
 local rail = require("cockpit.inbox.rail")
+local float = require("cockpit.inbox.float")
 local M = {}
 
 local ns = util.ns
@@ -633,11 +634,34 @@ local function annotate(buf, l1, l2)
     if label == "looks-good" then
       save("")
     else
-      vim.ui.input({ prompt = label .. ": " }, function(text)
-        if text and text ~= "" then
+      local nbuf = vim.api.nvim_create_buf(false, true)
+      vim.bo[nbuf].buftype = "acwrite"
+      vim.bo[nbuf].bufhidden = "wipe"
+      vim.api.nvim_buf_set_name(nbuf, "cockpit://inbox/note/" .. nbuf)
+      local nwin = float.open(nbuf, {
+        relative = "cursor",
+        title = label,
+        footer = ":w / <CR> save · q cancel",
+        width = 60,
+        height = 3,
+      })
+      local function commit()
+        local text = vim.trim(table.concat(vim.api.nvim_buf_get_lines(nbuf, 0, -1, false), "\n"))
+        vim.bo[nbuf].modified = false
+        if vim.api.nvim_win_is_valid(nwin) then
+          vim.api.nvim_win_close(nwin, true)
+        end
+        if text ~= "" then
           save(text)
         end
-      end)
+      end
+      vim.api.nvim_create_autocmd("BufWriteCmd", { buffer = nbuf, callback = commit })
+      map(nbuf, "<CR>", commit, "Save note")
+      map(nbuf, "q", function()
+        vim.bo[nbuf].modified = false
+        vim.api.nvim_win_close(nwin, true)
+      end, "Cancel note")
+      vim.cmd("startinsert")
     end
   end)
 end
@@ -938,17 +962,6 @@ function M.compose(tid, verdict)
   d.verdict = verdict
   local name = "cockpit://inbox/" .. tid .. "/reply"
   local buf = scratch(name, "markdown", "acwrite")
-  local w = win_for(buf)
-  if not w then
-    local tw = thread_win(tid)
-    if tw then
-      vim.api.nvim_set_current_win(tw)
-    end
-    vim.cmd("belowright 10split")
-    w = vim.api.nvim_get_current_win()
-    vim.api.nvim_win_set_buf(w, buf)
-  end
-  vim.api.nvim_set_current_win(w)
   if not views[buf] then
     views[buf] = { kind = "composer", tid = tid }
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(d.text or "", "\n"))
@@ -978,13 +991,24 @@ function M.compose(tid, verdict)
         views[buf] = nil
       end,
     })
+    map(buf, "q", function()
+      vim.api.nvim_win_close(0, true)
+    end, "Close composer (keeps draft)")
   end
   local t = store.thread(tid)
   local edits = #store.edits(t)
-  vim.wo[w].winbar = ("Reply · %s%s  ·  :w send  ·  :q keeps draft"):format(
-    verdict and VERDICTS[verdict] or "no verdict",
-    edits > 0 and (" · with " .. edits .. " edited deliverable" .. (edits > 1 and "s" or "")) or ""
-  )
+  local w = win_for(buf)
+  if w then
+    vim.api.nvim_set_current_win(w)
+  else
+    float.open(buf, {
+      title = ("Reply · %s%s"):format(
+        verdict and VERDICTS[verdict] or "no verdict",
+        edits > 0 and (" · with " .. edits .. " edited deliverable" .. (edits > 1 and "s" or "")) or ""
+      ),
+      footer = ":w send · q keep draft",
+    })
+  end
   vim.cmd("startinsert")
 end
 

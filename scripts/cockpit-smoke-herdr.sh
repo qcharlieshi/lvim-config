@@ -641,4 +641,59 @@ nlua "$T/t13.lua" 2>&1 | tee "$T/t13.out" | grep -q "T13 OK" || { cat "$T/t13.ou
 ok ":CockpitCleanup lists dead-agent threads, y archives (files kept), q cancels"
 [ "$LAST" -le 13 ] && exit 0
 
+# --- 14: floating composers — reply + line note (headless, no herdr) -----------------------------------
+echo "14: floating composers"
+cat >"$T/t14.lua" <<'LUA'
+local store = require("cockpit.inbox.store")
+require("cockpit.inbox").setup()
+local ui = require("cockpit.inbox.ui")
+local sha = vim.fn.sha256("# doc\nline two\n")
+vim.fn.mkdir(store.path("blobs"), "p")
+vim.fn.writefile({ "# doc", "line two" }, store.path("blobs", sha))
+local tid = "f14"
+store.append(store.thread_file(tid), { kind = "message", title = "f14", project = "smoke", text = "x", ts = os.time(),
+  attachments = { { name = "doc.md", type = "markdown", sha256 = sha } } })
+ui.select(tid)
+local function keys(k) vim.api.nvim_feedkeys(vim.keycode(k), "x", false) end
+-- reply composer is a float; q keeps the draft; reopening restores it
+ui.compose(tid, nil)
+local cfg = vim.api.nvim_win_get_config(0)
+assert(cfg.relative ~= "", "composer is not a float")
+assert(cfg.border and cfg.title, "float has no border/title")
+local buf = vim.api.nvim_get_current_buf()
+vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "half a thought" })
+keys("<Esc>")
+keys("q")
+assert(vim.api.nvim_win_get_config(0).relative == "", "q did not close the float")
+ui.compose(tid, nil)
+assert(vim.api.nvim_win_get_config(0).relative ~= "", "reopened composer is not a float")
+local got = table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), "\n")
+assert(got == "half a thought", "draft not restored: " .. got)
+keys("<Esc>")
+keys("q")
+-- line note: label select then a floating 3-line input
+local wins = vim.api.nvim_tabpage_list_wins(0)
+local att_win
+for _, w in ipairs(wins) do
+  if vim.api.nvim_buf_get_name(vim.api.nvim_win_get_buf(w)):find("doc.md", 1, true) then att_win = w end
+end
+assert(att_win, "attachment window not found")
+vim.api.nvim_set_current_win(att_win)
+vim.api.nvim_win_set_cursor(att_win, { 1, 0 })
+vim.ui.select = function(items, _, cb) cb("bug") end
+keys("ga")
+cfg = vim.api.nvim_win_get_config(0)
+assert(cfg.relative ~= "" and cfg.height == 3, "note input is not a 3-line float: " .. vim.inspect(cfg))
+vim.api.nvim_buf_set_lines(0, 0, -1, false, { "a", "b" })
+vim.cmd("write")
+assert(vim.api.nvim_win_get_config(0).relative == "", "note float still open after :w")
+local t = store.thread(tid)
+assert(#t.drafts == 1 and t.drafts[1].text == "a\nb", vim.inspect(t.drafts))
+assert(t.drafts[1].label == "bug", "label")
+print("T14 OK")
+LUA
+nlua "$T/t14.lua" 2>&1 | tee "$T/t14.out" | grep -q "T14 OK" || { cat "$T/t14.out"; fail "section 14"; }
+ok "reply composer + note input are floats; q keeps the draft and reopen restores it; note :w saves joined lines"
+[ "$LAST" -le 14 ] && exit 0
+
 echo "all sections passed"
