@@ -430,6 +430,8 @@ local function thread_buf(tid)
   return buf
 end
 
+local attachment_buf -- defined with the workspace code below
+
 -- Load a run into the cockpit: thread below, its current deliverable (or the last one viewed) above
 function M.select(tid, focus)
   local t = store.thread(tid)
@@ -450,7 +452,27 @@ function M.select(tid, focus)
   end, t.deliverables), att.sha256)) then
     att = t.deliverables[1]
   end
-  if att then
+  for _, a in ipairs(t.deliverables) do
+    attachment_buf(tid, a)
+  end
+  for b, v in pairs(views) do
+    if v.kind == "attachment" and vim.api.nvim_buf_is_valid(b) then
+      vim.bo[b].buflisted = v.tid == tid
+        and vim.tbl_contains(vim.tbl_map(function(a)
+          return a.sha256
+        end, t.deliverables), v.att.sha256)
+    end
+  end
+  local auto_diff = att and att.type == "diff" and att
+  if auto_diff then
+    ck.last_att[tid] = att
+    local pb = placeholder()
+    vim.api.nvim_win_set_buf(ck.work, pb)
+    map(pb, "<CR>", function()
+      require("cockpit.inbox.review").open(tid, auto_diff)
+    end, "Reopen in CodeDiff")
+    vim.wo[ck.work].winbar = "diff opened in CodeDiff · <CR> reopen"
+  elseif att then
     M.open_attachment(tid, att, false)
   else
     vim.api.nvim_win_set_buf(ck.work, placeholder())
@@ -466,6 +488,9 @@ function M.select(tid, focus)
     end)
   end
   vim.api.nvim_set_current_win(focus or ck.rail)
+  if auto_diff then
+    require("cockpit.inbox.review").open(tid, auto_diff)
+  end
 end
 
 -- `:Inbox <id>` and other entry points
@@ -675,21 +700,10 @@ local function note_at_cursor(buf)
   end
 end
 
--- Winbar: the round's deliverables as tabs, the current one highlighted
+-- Winbar: state + key hints (deliverables live in the lualine tabline)
 local function workspace_winbar(buf)
   local v = views[buf]
   local t = store.thread(v.tid)
-  local parts = {}
-  local list = t.deliverables
-  if not vim.tbl_contains(vim.tbl_map(function(a)
-    return a.sha256
-  end, list), v.att.sha256) then
-    list = { v.att } -- an older round's file opened from the thread
-  end
-  for _, a in ipairs(list) do
-    local cur = a.sha256 == v.att.sha256
-    parts[#parts + 1] = (cur and "%#TabLineSel#" or "%#TabLine#") .. " " .. a.name:gsub("%%", "%%%%") .. " "
-  end
   local state = {}
   if t.stage then
     state[#state + 1] = t.stage .. " r" .. t.round
@@ -704,7 +718,7 @@ local function workspace_winbar(buf)
   end
   local keys = v.att.type == "diff" and "<CR> CodeDiff  gR reset  ga note  ]d [d  gA gN gC gX  q rail"
     or "ga note  gp prev round  gR revert  ]d [d  gA gN gC gX  gr reply"
-  return table.concat(parts, "") .. "%#WinBar#  " .. table.concat(state, " · ") .. "%=%#Comment#" .. keys .. " "
+  return "%#WinBar# " .. table.concat(state, " · ") .. "%=%#Comment#" .. keys .. " "
 end
 
 local function cycle_deliverable(buf, dir)
@@ -734,7 +748,7 @@ local function compare_previous(buf)
   vim.cmd("CodeDiff file " .. vim.fn.fnameescape(a) .. " " .. vim.fn.fnameescape(b))
 end
 
-local function attachment_buf(tid, att)
+function attachment_buf(tid, att)
   local name = ("cockpit://inbox/%s/%s/%s"):format(tid, att.sha256:sub(1, 8), att.name)
   local is_diff = att.type == "diff"
   local ft = is_diff and "diff" or (vim.filetype.match({ filename = att.name }) or "text")
@@ -742,7 +756,7 @@ local function attachment_buf(tid, att)
   if buf and views[buf] then
     return buf
   end
-  buf = scratch(name, ft, is_diff and "nofile" or "acwrite")
+  buf = scratch(name, ft, is_diff and "nofile" or "acwrite", true)
   views[buf] = { kind = "attachment", tid = tid, att = att }
   local edited = not is_diff and vim.fn.filereadable(store.edit_file(tid, att)) == 1
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, edited and vim.fn.readfile(store.edit_file(tid, att)) or store.blob(att.sha256))

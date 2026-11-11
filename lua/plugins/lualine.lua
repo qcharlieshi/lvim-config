@@ -262,6 +262,12 @@ return {
             "buffers",
             show_modified_status = true,
             mode = 2,
+            -- cockpit deliverable buffers show as their bare file name
+            -- ctx.bufnr exists, but lualine pre-shortens `name`, so match on the real buffer name
+            fmt = function(name, ctx)
+              local full = ctx and ctx.bufnr and vim.api.nvim_buf_get_name(ctx.bufnr) or name
+              return full:match("^cockpit://inbox/[^/]+/%x+/(.+)$") or name
+            end,
             max_length = function()
               return vim.o.columns * 4 / 5 -- Original length for single window
             end,

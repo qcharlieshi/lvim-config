@@ -696,4 +696,56 @@ nlua "$T/t14.lua" 2>&1 | tee "$T/t14.out" | grep -q "T14 OK" || { cat "$T/t14.ou
 ok "reply composer + note input are floats; q keeps the draft and reopen restores it; note :w saves joined lines"
 [ "$LAST" -le 14 ] && exit 0
 
+# --- 15: CodeDiff auto-open, deliverable-only buffer list (headless, no herdr) ----------------------------
+echo "15: select — diff auto-opens CodeDiff, only deliverables are listed buffers"
+cat >"$T/t15.lua" <<'LUA'
+local store = require("cockpit.inbox.store")
+require("cockpit.inbox").setup()
+local ui = require("cockpit.inbox.ui")
+local review = require("cockpit.inbox.review")
+local function blob(lines)
+  local sha = vim.fn.sha256(table.concat(lines, "\n") .. "\n")
+  vim.fn.mkdir(store.path("blobs"), "p")
+  vim.fn.writefile(lines, store.path("blobs", sha))
+  return sha
+end
+local md = blob({ "# doc" })
+local df = blob({ "--- a/x", "+++ b/x", "@@ -1 +1 @@", "-a", "+b" })
+local tid = "f15"
+store.append(store.thread_file(tid), { kind = "message", title = "f15", project = "smoke", text = "x", ts = os.time(),
+  attachments = { { name = "doc.md", type = "markdown", sha256 = md }, { name = "x.diff", type = "diff", sha256 = df } } })
+local calls = {}
+review.open = function(t, att) calls[#calls + 1] = { t, att.name } end
+ui.select(tid)
+local listed = {}
+for _, b in ipairs(vim.api.nvim_list_bufs()) do
+  if vim.bo[b].buflisted and vim.api.nvim_buf_get_name(b) ~= "" then listed[#listed + 1] = vim.api.nvim_buf_get_name(b) end
+end
+table.sort(listed)
+local want = { "cockpit://inbox/f15/" .. md:sub(1, 8) .. "/doc.md", "cockpit://inbox/f15/" .. df:sub(1, 8) .. "/x.diff" }
+table.sort(want)
+assert(vim.deep_equal(listed, want), "listed buffers: " .. vim.inspect(listed))
+-- the first deliverable is the markdown; selecting a diff-first thread must auto-open
+local tid2 = "g15"
+store.append(store.thread_file(tid2), { kind = "message", title = "g15", project = "smoke", text = "x", ts = os.time(),
+  attachments = { { name = "y.diff", type = "diff", sha256 = df } } })
+ui.select(tid2)
+assert(#calls == 1 and calls[1][1] == tid2 and calls[1][2] == "y.diff", "review.open calls: " .. vim.inspect(calls))
+local bar
+for _, w in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+  if vim.wo[w].winbar:find("diff opened in CodeDiff", 1, true) then bar = true end
+end
+assert(bar, "placeholder winbar missing")
+-- other thread's deliverables got unlisted; this one's are listed
+local l2 = {}
+for _, b in ipairs(vim.api.nvim_list_bufs()) do
+  if vim.bo[b].buflisted and vim.api.nvim_buf_get_name(b) ~= "" then l2[#l2 + 1] = vim.api.nvim_buf_get_name(b) end
+end
+assert(#l2 == 1 and l2[1]:find("g15", 1, true), "listed after switch: " .. vim.inspect(l2))
+print("T15 OK")
+LUA
+nlua "$T/t15.lua" 2>&1 | tee "$T/t15.out" | grep -q "T15 OK" || { cat "$T/t15.out"; fail "section 15"; }
+ok "select unlists other threads' deliverables; a diff deliverable auto-opens CodeDiff with a placeholder winbar"
+[ "$LAST" -le 15 ] && exit 0
+
 echo "all sections passed"

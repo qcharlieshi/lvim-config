@@ -196,7 +196,11 @@ return {
             Snacks.picker.pick = function(source, opts)
               -- When called with a single table arg (e.g. vim.ui.select),
               -- source IS the opts table — don't split into two args
+              local in_projects = vim.fn.getcwd():find(vim.fn.expand("~/.cockpit/projects"), 1, true) == 1
               if type(source) == "table" then
+                if in_projects and source.follow == nil then
+                  source.follow = true -- repos/ are symlinks
+                end
                 if source.hidden == nil then
                   source.hidden = picker_state.hidden
                 end
@@ -206,6 +210,9 @@ return {
                 return orig_pick(source)
               end
               opts = opts or {}
+              if in_projects and opts.follow == nil then
+                opts.follow = true
+              end
               if opts.hidden == nil then
                 opts.hidden = picker_state.hidden
               end

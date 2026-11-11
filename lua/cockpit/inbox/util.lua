@@ -49,10 +49,11 @@ function M.find_buf(name)
   end
 end
 
-function M.scratch(name, ft, buftype)
+-- Unlisted by default so only deliverables show in the tabline
+function M.scratch(name, ft, buftype, listed)
   local buf = M.find_buf(name)
   if not buf then
-    buf = vim.api.nvim_create_buf(true, true)
+    buf = vim.api.nvim_create_buf(listed == true, true)
     vim.api.nvim_buf_set_name(buf, name)
     vim.bo[buf].buftype = buftype or "nofile"
     vim.bo[buf].bufhidden = "hide"
