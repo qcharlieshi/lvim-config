@@ -112,4 +112,69 @@ nlua "$T/t3.lua" 2>&1 | tee "$T/t3.out" | grep -q "T3 OK" || { cat "$T/t3.out"; 
 ok "projects.new() writes smoke.json with primary + extra repo"
 [ "$LAST" -le 3 ] && exit 0
 
+# --- 4: agent actions — spawn / prompt / interrupt / kill ---------------------------------------
+echo "4: spawn/prompt/interrupt/kill"
+mkdir -p "$T/untrusted" && git -C "$T/untrusted" init -q
+# A pre-approved permission guarantees Claude's folder-trust dialog (matches the genzed case)
+mkdir -p "$T/untrusted/.claude" && echo '{"permissions":{"allow":["Bash(true)"]}}' >"$T/untrusted/.claude/settings.local.json"
+cat >"$T/t4.lua" <<'LUA'
+local h, projects = require("cockpit.herdr"), require("cockpit.projects")
+local function await(fn, ms) -- run fn(cb) and wait for cb's args
+  local got
+  fn(function(...) got = { ... } end)
+  assert(vim.wait(ms or 90000, function() return got ~= nil end, 50), "timed out")
+  return unpack(got)
+end
+local function gone(name) return vim.wait(10000, function() return h.agents()[name] == nil end, 100) end
+h.start()
+h.watch(true) -- the cockpit UI turns this on while open; startup idle flips emit no event
+
+-- spawn into project smoke: own workspace labelled smoke, COCKPIT_PROJECT in the pane env
+local err, name = await(function(cb) h.spawn("smoke", nil, cb) end)
+assert(not err, vim.inspect(err))
+assert(name == "smoke-1", "name " .. tostring(name))
+assert(vim.wait(10000, function() local a = h.agents()[name]; return a and a.status == "idle" end), "smoke-1 not idle: " .. vim.inspect(h.agents()))
+assert(h.agents()[name].project == "smoke", "project " .. tostring(h.agents()[name].project))
+local perr = await(function(cb)
+  h.request("agent.prompt", { target = name, text = "Run this bash command and reply with only its output: echo PROJ=$COCKPIT_PROJECT", wait = { timeout_ms = 90000 } }, cb)
+end, 100000)
+assert(not perr, vim.inspect(perr))
+local _, read = h.request("agent.read", { target = name, source = "recent_unwrapped", lines = 60 })
+assert(read and vim.inspect(read):find("PROJ=smoke", 1, true), "COCKPIT_PROJECT not in pane env")
+
+assert(h.interrupt(name) == nil, "interrupt errored")
+assert(h.kill(name) == nil, "kill errored")
+assert(gone(name), "smoke-1 still in cache after kill")
+
+-- Review Focus 2: untrusted folder -> blocked at startup, agent kept, attach offered
+projects.save({ name = "untrusted", repos = { vim.env.T .. "/untrusted" } })
+local offered
+vim.ui.select = function(items, opts, cb) offered = opts.prompt; cb("Later") end
+local uerr, uname = await(function(cb) h.spawn("untrusted", nil, cb) end)
+assert(uerr and uerr.code == "agent_not_ready", vim.inspect(uerr))
+assert(offered and offered:find("blocked", 1, true), "attach-now not offered")
+assert(vim.wait(10000, function() local a = h.agents()[uname]; return a and a.status == "blocked" end), "not blocked")
+h.kill(uname)
+
+-- Review Focus 4: ad-hoc agent outside any project — visible, no project, never reused by spawn
+local _, ws = h.request("workspace.create", { cwd = vim.env.NVIM_CFG, label = "adhoc-ws", focus = false })
+vim.wait(1500)
+local aerr = await(function(cb)
+  h.request("agent.start", { name = "adhoc", kind = "claude", pane_id = ws.root_pane.pane_id, timeout_ms = 60000 }, cb)
+end)
+assert(not aerr, vim.inspect(aerr))
+assert(vim.wait(10000, function() return h.agents().adhoc ~= nil end), "adhoc not cached")
+assert(h.agents().adhoc.project == nil, "adhoc got a project")
+local function panes(wid) return #(select(2, h.request("pane.list", { workspace_id = wid })).panes) end
+local before = panes(ws.workspace.workspace_id)
+local serr, sname = await(function(cb) h.spawn("smoke", nil, cb) end)
+assert(not serr, vim.inspect(serr))
+assert(panes(ws.workspace.workspace_id) == before, "spawn touched the ad-hoc workspace")
+h.kill(sname); h.kill("adhoc")
+print("T4 OK")
+LUA
+T=$T NVIM_CFG=$NVIM_CFG nlua "$T/t4.lua" 2>&1 | tee "$T/t4.out" | grep -q "T4 OK" || { cat "$T/t4.out"; fail "section 4"; }
+ok "spawn into project (env + label), prompt, interrupt, kill; untrusted -> blocked + attach offer; ad-hoc agent left alone"
+[ "$LAST" -le 4 ] && exit 0
+
 echo "all sections passed"

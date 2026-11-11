@@ -237,6 +237,152 @@ function M.agents()
   return cache
 end
 
+---------------------------------------------------------------------------
+-- Actions
+---------------------------------------------------------------------------
+
+local function free_name(project)
+  local _, res = M.request("agent.list", {})
+  local taken = {}
+  for _, a in ipairs((res or {}).agents or {}) do
+    if a.name then
+      taken[a.name] = true
+    end
+  end
+  local n = 1
+  while taken[project .. "-" .. n] do
+    n = n + 1
+  end
+  return project .. "-" .. n
+end
+
+-- The pane to start an agent in: the project's workspace (by label) — an agent-less shell there,
+-- else a split; no workspace yet → create it. Returns err, pane_id.
+local function project_pane(p, env)
+  local cwd = p.repos[1]
+  local _, wl = M.request("workspace.list", {})
+  local ws
+  for _, w in ipairs((wl or {}).workspaces or {}) do
+    if w.label == p.name then
+      ws = w
+      break
+    end
+  end
+  if not ws then
+    local err, res = M.request("workspace.create", { cwd = cwd, label = p.name, focus = false, env = env })
+    return err, res and res.root_pane.pane_id
+  end
+  local _, pl = M.request("pane.list", { workspace_id = ws.workspace_id })
+  local panes = (pl or {}).panes or {}
+  for _, pane in ipairs(panes) do
+    if not pane.agent then
+      return nil, pane.pane_id
+    end
+  end
+  local err, res = M.request("pane.split", {
+    target_pane_id = panes[1] and panes[1].pane_id,
+    workspace_id = ws.workspace_id,
+    direction = "right",
+    cwd = cwd,
+    focus = false,
+    env = env,
+  })
+  return err, res and res.pane.pane_id
+end
+
+-- Start a Claude agent in `project`; cb(err, name). A blocked start (folder trust) keeps the
+-- agent and offers to attach so you can answer the dialog yourself.
+function M.spawn(project, prompt, cb)
+  cb = cb or function() end
+  if not M.ensure() then
+    return cb({ code = "no_server", message = "herdr server not running" })
+  end
+  local p = require("cockpit.projects").get(project)
+  if not p then
+    return cb({ code = "no_project", message = "no project " .. project })
+  end
+  local env = { COCKPIT_PROJECT = project, COCKPIT_INBOX_DIR = vim.env.COCKPIT_INBOX_DIR }
+  local err, pane_id = project_pane(p, env)
+  if err then
+    vim.notify("cockpit: spawn failed — " .. err.message, vim.log.levels.ERROR)
+    return cb(err)
+  end
+  local name = free_name(project)
+  local args = {}
+  for i = 2, #p.repos do
+    vim.list_extend(args, { "--add-dir", p.repos[i] })
+  end
+  -- a fresh pane needs a moment to reach its shell prompt before agent.start accepts it
+  vim.defer_fn(function()
+    local function started(serr)
+      M.reconcile()
+      if serr and serr.code == "agent_not_ready" then
+        vim.ui.select({ "Attach now", "Later" }, { prompt = name .. " is blocked at startup (likely folder trust)" }, function(choice)
+          if choice == "Attach now" then
+            M.attach(name)
+          end
+        end)
+      elseif serr then
+        vim.notify("cockpit: " .. name .. " failed to start — " .. serr.message, vim.log.levels.ERROR)
+      elseif prompt and prompt ~= "" then
+        M.request("agent.prompt", { target = name, text = prompt }, function() end)
+      end
+      if not serr then
+        vim.notify("cockpit: " .. name .. " ready")
+      end
+      cb(serr, name)
+    end
+    -- Over the socket, agent.start returns at launch; readiness (the CLI's wait) is ours to do
+    M.request("agent.start", { name = name, kind = "claude", pane_id = pane_id, args = args, timeout_ms = 60000 }, function(serr)
+      if serr then
+        return started(serr)
+      end
+      M.request("agent.wait", { target = name, ["until"] = { "idle", "blocked" }, timeout_ms = 60000 }, function(werr, res)
+        local status = res and res.agent and res.agent.agent_status
+        if not werr and status == "blocked" then
+          werr = { code = "agent_not_ready", message = name .. " is blocked during startup" }
+        end
+        started(werr)
+      end)
+    end)
+  end, 1500)
+end
+
+-- Hard kill: close the agent's own pane. Callers confirm first. Returns err or nil.
+function M.kill(target)
+  local a = cache[target]
+  local pane_id = a and a.pane_id or target
+  local err = M.request("pane.close", { pane_id = pane_id })
+  M.reconcile()
+  return err
+end
+
+function M.interrupt(target)
+  return (M.request("agent.send_keys", { target = target, keys = { "esc" } }))
+end
+
+function M.attach(target)
+  local argv = M.cli("agent", "attach", target)
+  if vim.env.TMUX then
+    vim.system({ "tmux", "new-window", "-n", target, table.concat(vim.tbl_map(vim.fn.shellescape, argv), " ") })
+  else
+    vim.cmd("tabnew")
+    vim.fn.jobstart(argv, { term = true })
+    vim.cmd("startinsert")
+  end
+end
+
+-- Submit text as a prompt; returns a one-line status for the user.
+function M.prompt(target, text)
+  local err = M.request("agent.prompt", { target = target, text = text })
+  if not err then
+    return "delivered to " .. target
+  elseif err.code == "agent_blocked" then
+    return target .. " is at a dialog — attach to answer"
+  end
+  return target .. ": " .. (err.message or err.code)
+end
+
 function M.by_terminal(terminal_id)
   for _, a in pairs(cache) do
     if terminal_id and a.terminal_id == terminal_id then
