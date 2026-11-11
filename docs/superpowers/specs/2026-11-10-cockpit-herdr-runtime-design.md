@@ -72,7 +72,7 @@ Step 1 makes agents something cockpit **owns**: they run headless in a herdr ser
 - Step 3 will add `~/.cockpit/projects/<name>/` (PRD, context, memory) next to the JSON. Nothing reads it yet.
 - **Create:** `:CockpitProject new` prompts for a name, then multi-select repos (picker over git repos under `~/dev`, `~/.config`). Or hand-write the JSON.
 - **Edit:** open the JSON.
-- **One herdr workspace per project.** Resolve it at runtime by matching the workspace **label** to the project name (`workspace list`); don't persist workspace IDs. Create on first spawn with `--cwd <primary>` and rename to the project name.
+- **One herdr workspace per project**, labelled `ck/<name>` so a hand-opened workspace that shares the repo's basename is never adopted (final-review fix). Resolve it at runtime by label (`workspace list`); don't persist workspace IDs. Create on first spawn with `cwd = <primary>`. Spawn only uses the fresh root pane of a workspace it just created; otherwise it splits.
 
 ### 4.3 nvim runtime module — `lua/cockpit/herdr.lua`
 

@@ -110,10 +110,14 @@ end
 -- Agent cache
 ---------------------------------------------------------------------------
 
+-- Cockpit owns only workspaces it labelled ck/<project>; a hand-opened workspace that merely
+-- shares the project's name (labels default to the dir basename) is never adopted.
+local PREFIX = "ck/"
 local function project_for(workspace_id)
   local label = labels[workspace_id]
+  local name = label and label:sub(1, #PREFIX) == PREFIX and label:sub(#PREFIX + 1)
   local ok, projects = pcall(require, "cockpit.projects")
-  return (ok and label and projects.get(label)) and label or nil
+  return (ok and name and projects.get(name)) and name or nil
 end
 
 local function fire()
@@ -237,6 +241,10 @@ function M.agents()
   return cache
 end
 
+function M.watching()
+  return reconcile_timer ~= nil and reconcile_timer:is_active()
+end
+
 ---------------------------------------------------------------------------
 -- Actions
 ---------------------------------------------------------------------------
@@ -256,29 +264,25 @@ local function free_name(project)
   return project .. "-" .. n
 end
 
--- The pane to start an agent in: the project's workspace (by label) — an agent-less shell there,
--- else a split; no workspace yet → create it. Returns err, pane_id.
+-- The pane to start an agent in: create the project's ck/ workspace and use its fresh root pane,
+-- or split a new pane into the existing one. Never reuses a pane cockpit didn't just create.
+-- Returns err, pane_id.
 local function project_pane(p, env)
   local cwd = p.repos[1]
   local _, wl = M.request("workspace.list", {})
   local ws
   for _, w in ipairs((wl or {}).workspaces or {}) do
-    if w.label == p.name then
+    if w.label == PREFIX .. p.name then
       ws = w
       break
     end
   end
   if not ws then
-    local err, res = M.request("workspace.create", { cwd = cwd, label = p.name, focus = false, env = env })
+    local err, res = M.request("workspace.create", { cwd = cwd, label = PREFIX .. p.name, focus = false, env = env })
     return err, res and res.root_pane.pane_id
   end
   local _, pl = M.request("pane.list", { workspace_id = ws.workspace_id })
   local panes = (pl or {}).panes or {}
-  for _, pane in ipairs(panes) do
-    if not pane.agent then
-      return nil, pane.pane_id
-    end
-  end
   local err, res = M.request("pane.split", {
     target_pane_id = panes[1] and panes[1].pane_id,
     workspace_id = ws.workspace_id,

@@ -260,4 +260,45 @@ CLI=$CLI nlua "$T/t6.lua" 2>&1 | tee "$T/t6.out" | grep -q "T6 OK" || { cat "$T/
 ok "rail shows ○ for a live idle agent, ✕ after kill; s X i gt A mapped; :CockpitSpawn/:CockpitAgent exist"
 [ "$LAST" -le 6 ] && exit 0
 
+# --- 7: review fixes — refresh timer lifecycle, own workspaces only, no tmux leak ------------------
+echo "7: review fixes"
+HP=$("${H[@]}" workspace create --cwd "$NVIM_CFG" | jget 'd["result"]["root_pane"]["pane_id"]')
+HW=${HP%%:*}
+"${H[@]}" workspace rename "$HW" smoke >/dev/null # a hand-opened workspace that happens to share the project's name
+cat >"$T/t7.lua" <<'LUA'
+local h, store = require("cockpit.herdr"), require("cockpit.inbox.store")
+require("cockpit.inbox").setup()
+local ui = require("cockpit.inbox.ui")
+local function await(fn, ms)
+  local got
+  fn(function(...) got = { ... } end)
+  assert(vim.wait(ms or 90000, function() return got ~= nil end, 50), "timed out")
+  return unpack(got)
+end
+-- fix 1: the 3 s reconcile stays on while the cockpit is open (re-open / select), off after close
+ui.open(); ui.open()
+assert(h.watching(), "refresh timer off while cockpit open")
+ui.close()
+assert(not h.watching(), "refresh timer still on after close")
+-- fix 2: spawn never adopts a hand-opened workspace labelled like the project
+local hw = vim.env.HW
+local function panes(wid) return #(select(2, h.request("pane.list", { workspace_id = wid })).panes) end
+local before = panes(hw)
+local err, name = await(function(cb) h.spawn("smoke", nil, cb) end)
+assert(not err, vim.inspect(err))
+assert(panes(hw) == before, "spawn split the hand-opened workspace")
+local _, a = h.request("agent.get", { target = name })
+local _, ws = h.request("workspace.get", { workspace_id = a.agent.workspace_id })
+assert(ws.workspace.label == "ck/smoke", "label " .. tostring(ws.workspace.label))
+assert(vim.wait(5000, function() return (h.agents()[name] or {}).project == "smoke" end), "project not resolved from ck/ label")
+h.kill(name)
+-- fix 3: a herdr-posted thread whose agent is gone never falls through to a tmux pane
+local how = store.deliver({ id = "x", session = { herdr = { terminal_id = "term_gone" }, tmux_pane = "%999999" } })
+assert(how:find("offline", 1, true), "deliver fell through: " .. how)
+print("T7 OK")
+LUA
+HW=$HW nlua "$T/t7.lua" 2>&1 | tee "$T/t7.out" | grep -q "T7 OK" || { cat "$T/t7.out"; fail "section 7"; }
+ok "timer on while open/off after close; spawn uses its own ck/ workspace; no tmux fallthrough for herdr threads"
+[ "$LAST" -le 7 ] && exit 0
+
 echo "all sections passed"

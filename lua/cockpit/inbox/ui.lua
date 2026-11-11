@@ -179,8 +179,7 @@ end
 -- Ensure the cockpit tab and its three windows exist (rebuilding any the user closed)
 local function layout()
   if ck.tab and vim.api.nvim_tabpage_is_valid(ck.tab) then
-    require("cockpit.herdr").watch(false)
-  vim.api.nvim_set_current_tabpage(ck.tab)
+    vim.api.nvim_set_current_tabpage(ck.tab)
     if valid(ck.rail) and valid(ck.work) and valid(ck.thread) then
       return
     end
@@ -219,6 +218,7 @@ function M.close()
   if not (ck.tab and vim.api.nvim_tabpage_is_valid(ck.tab)) then
     return
   end
+  require("cockpit.herdr").watch(false)
   vim.api.nvim_set_current_tabpage(ck.tab)
   if #vim.api.nvim_list_tabpages() > 1 then
     vim.cmd("tabclose")

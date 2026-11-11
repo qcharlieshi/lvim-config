@@ -342,11 +342,10 @@ function M.deliver(t)
     if agent then
       return herdr.prompt(agent.target, msg)
     end
-  end
-  local pane = t.session and t.session.tmux_pane
-  if not pane and hid then
+    -- never fall through to tmux: a tmux_pane on a herdr thread is leaked env, i.e. someone else's pane
     return "agent offline; reply kept for the next reader"
   end
+  local pane = t.session and t.session.tmux_pane
   if not pane then
     return "no agent pane; it can run `read " .. t.id .. " --new`"
   end
