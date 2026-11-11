@@ -34,6 +34,21 @@ local VERDICTS = {
   changes_requested = "changes requested",
   reject = "rejected",
 }
+-- herdr agent status for a run's producer (only for runs posted from a herdr pane)
+local AGENT = {
+  working = { "◐", "DiagnosticInfo" },
+  blocked = { "⚠", "DiagnosticWarn" },
+  idle = { "○", "Comment" },
+  done = { "○", "Comment" },
+  unknown = { "?", "Comment" },
+  offline = { "✕", "DiagnosticError" },
+}
+
+local function run_agent(t)
+  local hid = t.session and t.session.herdr
+  return hid and require("cockpit.herdr").by_terminal(hid.terminal_id)
+end
+
 local LANE_NAMES =
   { backlog = "Backlog", todo = "Todo", in_progress = "In progress", in_review = "In review", done = "Done" }
 
@@ -164,7 +179,8 @@ end
 -- Ensure the cockpit tab and its three windows exist (rebuilding any the user closed)
 local function layout()
   if ck.tab and vim.api.nvim_tabpage_is_valid(ck.tab) then
-    vim.api.nvim_set_current_tabpage(ck.tab)
+    require("cockpit.herdr").watch(false)
+  vim.api.nvim_set_current_tabpage(ck.tab)
     if valid(ck.rail) and valid(ck.work) and valid(ck.thread) then
       return
     end
@@ -283,6 +299,11 @@ function M.render_rail(buf)
     else
       second[#second + 1] = { s[3] ~= "" and s[3] or "message", "Comment" }
     end
+    if t.session and t.session.herdr then
+      local a = run_agent(t)
+      local g = AGENT[a and a.status or "offline"] or AGENT.unknown
+      second[#second + 1] = { "  " .. g[1], g[2] }
+    end
     second[#second + 1] = { "  " .. ago(t.last_ts), "Comment" }
     lines[#lines + 1] = segs(#lines, second, marks)
     item_map[#lines] = t
@@ -330,6 +351,25 @@ function M.rail_buf()
     ck.show_archived = not ck.show_archived
     M.render_rail(buf)
   end, "Toggle archived")
+  local function with_agent(fn)
+    return function()
+      local t = cursor_item(buf)
+      local a = t and run_agent(t)
+      if not a then
+        return vim.notify("cockpit: no live herdr agent for this run", vim.log.levels.WARN)
+      end
+      fn(a)
+    end
+  end
+  map(buf, "s", M.spawn, "Spawn agent")
+  map(buf, "A", M.pick_agent, "Agent picker")
+  map(buf, "X", with_agent(M.kill_agent), "Kill agent")
+  map(buf, "i", with_agent(function(a)
+    require("cockpit.herdr").interrupt(a.target)
+  end), "Interrupt agent")
+  map(buf, "gt", with_agent(function(a)
+    require("cockpit.herdr").attach(a.target)
+  end), "Attach to agent")
   map(buf, "q", M.close, "Close cockpit")
   M.render_rail(buf)
   return buf
@@ -337,6 +377,7 @@ end
 
 -- Open (or jump to) the cockpit tab
 function M.open()
+  require("cockpit.herdr").watch(true)
   layout()
   M.render_rail(M.rail_buf())
   focus_rail()
@@ -1269,6 +1310,90 @@ function M.board()
   end
   vim.api.nvim_win_set_buf(0, buf)
   M.render_board(buf)
+end
+
+---------------------------------------------------------------------------
+-- Agents (herdr)
+---------------------------------------------------------------------------
+
+function M.kill_agent(a)
+  local label = ("Kill %s (%s)?"):format(a.target, a.status or "?")
+  if vim.fn.confirm(label, "&Yes\n&No", 2) == 1 then
+    local err = require("cockpit.herdr").kill(a.target)
+    vim.notify(err and ("cockpit: kill failed — " .. err.message) or ("cockpit: killed " .. a.target))
+  end
+end
+
+function M.spawn(project)
+  local projects, herdr = require("cockpit.projects"), require("cockpit.herdr")
+  local function go(name)
+    vim.ui.input({ prompt = "First prompt (optional): " }, function(text)
+      if text ~= nil then
+        herdr.spawn(name, text)
+      end
+    end)
+  end
+  if type(project) == "string" and project ~= "" then
+    return go(project)
+  end
+  local NEW = "+ new project"
+  local names = vim.tbl_map(function(p)
+    return p.name
+  end, projects.list())
+  names[#names + 1] = NEW
+  vim.ui.select(names, { prompt = "Spawn into project" }, function(choice)
+    if choice == NEW then
+      projects.new(function(p)
+        go(p.name)
+      end)
+    elseif choice then
+      go(choice)
+    end
+  end)
+end
+
+function M.pick_agent()
+  local herdr = require("cockpit.herdr")
+  local list = vim.tbl_values(herdr.agents())
+  if #list == 0 then
+    return vim.notify("cockpit: no live herdr agents")
+  end
+  table.sort(list, function(a, b)
+    return a.target < b.target
+  end)
+  vim.ui.select(list, {
+    prompt = "Agent",
+    format_item = function(a)
+      return ("%s · %s · %s · %s"):format(a.target, a.project or "—", a.status or "?", a.title or "")
+    end,
+  }, function(a)
+    if not a then
+      return
+    end
+    vim.ui.select({ "attach", "interrupt", "kill", "prompt" }, { prompt = a.target }, function(action)
+      if action == "attach" then
+        herdr.attach(a.target)
+      elseif action == "interrupt" then
+        herdr.interrupt(a.target)
+      elseif action == "kill" then
+        M.kill_agent(a)
+      elseif action == "prompt" then
+        vim.ui.input({ prompt = a.target .. " ← " }, function(text)
+          if text and text ~= "" then
+            vim.notify("cockpit: " .. herdr.prompt(a.target, text))
+          end
+        end)
+      end
+    end)
+  end)
+end
+
+function M.refresh_rail()
+  for buf, v in pairs(views) do
+    if v.kind == "rail" and vim.api.nvim_buf_is_valid(buf) then
+      M.render_rail(buf)
+    end
+  end
 end
 
 function M.refresh()

@@ -216,4 +216,48 @@ CLI=$CLI nlua "$T/t5.lua" 2>&1 | tee "$T/t5.out" | grep -q "T5 OK" || { cat "$T/
 ok "reply delivered to the herdr agent via agent.prompt; offline after kill"
 [ "$LAST" -le 5 ] && exit 0
 
+# --- 6: rail — agent status glyph + keys ------------------------------------------------------
+echo "6: rail glyphs + keys"
+cat >"$T/t6.lua" <<'LUA'
+local h, store = require("cockpit.herdr"), require("cockpit.inbox.store")
+require("cockpit.inbox").setup() -- starts herdr cache, commands, CockpitAgents -> rail refresh
+local ui = require("cockpit.inbox.ui")
+local function await(fn, ms)
+  local got
+  fn(function(...) got = { ... } end)
+  assert(vim.wait(ms or 90000, function() return got ~= nil end, 50), "timed out")
+  return unpack(got)
+end
+local err, name = await(function(cb) h.spawn("smoke", nil, cb) end)
+assert(not err, vim.inspect(err))
+local cmd = ("python3 %s post --title s6 --text hi"):format(vim.env.CLI)
+await(function(cb)
+  h.request("agent.prompt", { target = name, text = "Run exactly this bash command, then reply done: " .. cmd, wait = { timeout_ms = 90000 } }, cb)
+end, 100000)
+assert(vim.fn.glob(store.path("threads", "*-s6.jsonl")) ~= "", "agent did not post s6")
+ui.open()
+local rail = vim.fn.bufnr("cockpit://rail")
+local function line_after_title()
+  local lines = vim.api.nvim_buf_get_lines(rail, 0, -1, false)
+  for i, l in ipairs(lines) do
+    if l:find("s6", 1, true) then return lines[i + 1] or "" end
+  end
+  return ""
+end
+assert(vim.wait(10000, function() ui.refresh(); return line_after_title():find("○", 1, true) ~= nil end, 500),
+  "no idle glyph: " .. line_after_title())
+h.kill(name)
+assert(vim.wait(10000, function() return line_after_title():find("✕", 1, true) ~= nil end, 200),
+  "no offline glyph after kill: " .. line_after_title())
+for lhs, desc in pairs({ s = "Spawn agent", X = "Kill agent", i = "Interrupt agent", gt = "Attach to agent", A = "Agent picker" }) do
+  local m = vim.api.nvim_buf_call(rail, function() return vim.fn.maparg(lhs, "n", false, true) end)
+  assert(m.desc == desc, lhs .. " desc " .. tostring(m.desc))
+end
+assert(vim.fn.exists(":CockpitSpawn") == 2 and vim.fn.exists(":CockpitAgent") == 2, "commands missing")
+print("T6 OK")
+LUA
+CLI=$CLI nlua "$T/t6.lua" 2>&1 | tee "$T/t6.out" | grep -q "T6 OK" || { cat "$T/t6.out"; fail "section 6"; }
+ok "rail shows ○ for a live idle agent, ✕ after kill; s X i gt A mapped; :CockpitSpawn/:CockpitAgent exist"
+[ "$LAST" -le 6 ] && exit 0
+
 echo "all sections passed"

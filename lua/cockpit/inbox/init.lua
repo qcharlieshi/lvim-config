@@ -54,6 +54,27 @@ function M.setup()
   end
   vim.api.nvim_create_user_command("Cockpit", open, { nargs = "?", desc = "Cockpit (optional run/thread id)" })
   vim.api.nvim_create_user_command("Inbox", open, { nargs = "?", desc = "Cockpit (alias)" })
+  vim.api.nvim_create_user_command("CockpitSpawn", function(o)
+    ui().spawn(o.args)
+  end, {
+    nargs = "?",
+    desc = "Spawn a Claude agent into a cockpit project",
+    complete = function()
+      return vim.tbl_map(function(p)
+        return p.name
+      end, require("cockpit.projects").list())
+    end,
+  })
+  vim.api.nvim_create_user_command("CockpitAgent", function()
+    ui().pick_agent()
+  end, { desc = "Pick a live herdr agent: attach / interrupt / kill / prompt" })
+  vim.api.nvim_create_autocmd("User", {
+    pattern = "CockpitAgents",
+    callback = function()
+      ui().refresh_rail()
+    end,
+  })
+  require("cockpit.herdr").start()
   vim.api.nvim_create_user_command("CockpitProject", function(o)
     local projects = require("cockpit.projects")
     if o.fargs[1] == "edit" then
