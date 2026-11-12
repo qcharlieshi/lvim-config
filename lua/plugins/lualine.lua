@@ -18,6 +18,24 @@ local function get_git_branch()
   return branch
 end
 
+local function tabline_clock()
+  return "  " .. os.date("%a %b %d • %R")
+end
+
+local function tabline_spacer_width()
+  return math.floor(vim.o.columns / 12)
+end
+
+-- Budget for the buffers component = whatever the rest of the tabline leaves over.
+-- Overshooting makes nvim truncate at lualine's `%<`, clipping the left cap and first buffer.
+local function tabline_buffers_max_length()
+  local clock_w = vim.fn.strdisplaywidth(tabline_clock()) + 3 -- padding + cap
+  local tabs_w = vim.fn.tabpagenr("$") * 4 + 3 -- " n " + separators + cap
+  -- lualine appends "..." markers + caps after its max_length check, and counts %Z{} placeholders oddly
+  local slack = 8
+  return math.max(20, vim.o.columns - clock_w - tabs_w - 2 * tabline_spacer_width() - slack)
+end
+
 return {
   "nvim-lualine/lualine.nvim",
   dependencies = { "nvim-tree/nvim-web-devicons", "SmiteshP/nvim-navic" },
@@ -243,14 +261,12 @@ return {
       tabline = {
         lualine_a = {
           {
-            function()
-              return "  " .. os.date("%a %b %d • %R")
-            end,
+            tabline_clock,
             separator = { right = "" },
           },
           {
             function()
-              return string.rep(" ", math.floor(vim.o.columns / 12))
+              return string.rep(" ", tabline_spacer_width())
             end,
             color = { bg = "NONE", fg = "NONE" },
           },
@@ -268,9 +284,7 @@ return {
               local full = ctx and ctx.bufnr and vim.api.nvim_buf_get_name(ctx.bufnr) or name
               return full:match("^cockpit://inbox/[^/]+/%x+/(.+)$") or name
             end,
-            max_length = function()
-              return vim.o.columns * 4 / 5 -- Original length for single window
-            end,
+            max_length = tabline_buffers_max_length,
             -- Adds seperator between each buffer but right doesn't seem to show up?
             -- component_separators = { left = "", right = "" },
             buffers_color = {
@@ -312,7 +326,7 @@ return {
         lualine_z = {
           {
             function()
-              return string.rep(" ", math.floor(vim.o.columns / 12))
+              return string.rep(" ", tabline_spacer_width())
             end,
             color = { bg = "NONE", fg = "NONE" },
           },
