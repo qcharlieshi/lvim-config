@@ -454,7 +454,7 @@ ui.open()
 local buf = vim.fn.bufnr("cockpit://rail")
 local win = vim.fn.win_findbuf(buf)[1]
 assert(vim.iter(lines(buf)):any(function(l) return l:match("^▾ r%s*$") ~= nil end), "no ▾ r row:\n" .. table.concat(lines(buf), "\n"))
--- 2. smoke → agent → s11, one line each
+-- 2. smoke → agent card (its rows all map to the agent) → s11
 local err, name = await(function(cb) h.spawn("smoke", nil, cb) end)
 assert(not err, vim.inspect(err))
 local tid = h.agents()[name].terminal_id
@@ -468,11 +468,14 @@ local sid = vim.fn.fnamemodify(f, ":t:r")
 local function row(key) ui.refresh_rail(); return rail.row(buf, key) end
 assert(vim.wait(10000, function() return row("t:" .. sid) ~= nil end, 200), "s11 never in rail")
 local pr = row("p:smoke")
-assert(rail.row(buf, "a:" .. tid) == pr + 1 and rail.row(buf, "t:" .. sid) == pr + 2,
-  "not consecutive:\n" .. table.concat(lines(buf), "\n"))
+local tr = rail.row(buf, "t:" .. sid)
+assert(rail.row(buf, "a:" .. tid) == pr + 1 and tr > pr + 1, "not in order:\n" .. table.concat(lines(buf), "\n"))
+for r = pr + 2, tr - 1 do
+  assert(rail.node(buf, r).key == "a:" .. tid, "row " .. r .. " between agent and thread is not its card")
+end
 local L = lines(buf)
-assert(L[pr]:match("^▾ smoke") and L[pr + 1]:find(name, 1, true) and L[pr + 2]:find("s11", 1, true),
-  "rows:\n" .. table.concat(lines(buf), "\n"))
+assert(L[pr]:match("^▾ smoke") and L[tr]:find("s11", 1, true), "rows:\n" .. table.concat(lines(buf), "\n"))
+assert(table.concat(L, "\n", pr + 1, tr - 1):find("herdr " .. name, 1, true), "card lacks herdr name:\n" .. table.concat(L, "\n"))
 local past = rail.row(buf, "past:smoke")
 assert(past and vim.api.nvim_win_call(win, function() return vim.fn.foldclosed(past) end) == past, "past:smoke not folded by default")
 -- 3. zc on the agent survives a reconcile + re-render; cursor stays on the agent node (Review Focus 3)
@@ -509,7 +512,7 @@ assert(#kills == 0, "herdr.kill called for a dead agent: " .. table.concat(kills
 print("T11 OK")
 LUA
 CLI=$CLI NVIM_CFG=$NVIM_CFG nlua "$T/t11.lua" 2>&1 | tee "$T/t11.out" | grep -q "T11 OK" || { cat "$T/t11.out"; fail "section 11"; }
-ok "rail: empty project row; smoke > agent > s11 one line each; folds + cursor survive refresh; kill archives + registry dead; X on a past agent archives without herdr.kill"
+ok "rail: empty project row; smoke > agent card > s11; folds + cursor survive refresh; kill archives + registry dead; X on a past agent archives without herdr.kill"
 [ "$LAST" -le 11 ] && exit 0
 
 # --- 12: forks — continue + worktree, kill cleanup -----------------------------------------------------
@@ -931,16 +934,18 @@ ok "launcher: attach marker $TERM17L = %77 while attached, removed after"
 # worktrees resolve to their main repo (temp repo, no herdr)
 R17=$T/r17
 git init -q "$R17" && git -C "$R17" commit -q --allow-empty -m init && git -C "$R17" worktree add -q "$R17/.wt" -b wt17 2>/dev/null
+mkdir -p "$T/plain17"
 cat >"$T/t17.lua" <<LUA
 local projects = require("cockpit.projects")
 local a = projects.for_dir("$R17")
 local b = projects.for_dir("$R17/.wt")
 assert(a == "r17" and b == "r17", tostring(a) .. " / " .. tostring(b))
-assert(projects.for_dir("$T") == nil, "non-git dir got a project")
+assert(projects.for_dir("$T/plain17") == "plain17", "non-git dir: " .. tostring(projects.for_dir("$T/plain17")))
+assert(projects.for_dir(vim.fn.expand("~")) == nil, "\$HOME got a project")
 print("T17 OK")
 LUA
 COCKPIT_PROJECTS_DIR=$P17 nlua "$T/t17.lua" 2>&1 | tee "$T/t17.out" | grep -q "T17 OK" || { cat "$T/t17.out"; fail "for_dir worktree"; }
-ok "for_dir: a worktree maps to its main repo's project; non-git dir -> nil"
+ok "for_dir: a worktree maps to its main repo's project; non-git dir -> own project; \$HOME -> nil"
 # bypass: plain claude, no herdr session touched
 V17=$(TMUX=dummy COCKPIT_NO_HERDR=1 COCKPIT_HERDR_SESSION=ck17none "$NVIM_CFG/scripts/cockpit-claude" --version 2>&1) || fail "bypass --version failed: $V17"
 [[ $V17 == *"Claude Code"* ]] || fail "bypass printed: $V17"
@@ -969,14 +974,14 @@ ps -wwE -p "$PID17" | grep -q "FOO17=bar17" || fail "$N17C env lacks FOO17"
 ! ps -wwE -p "$PID17" | grep -q "TMUX=dummy" || fail "$N17C env leaked TMUX"
 "${H[@]}" pane close "$PANE17C" >/dev/null
 ok "spawn from nvim/lua: pane cwd = nvim/lua, --append-system-prompt \"a b\" one argv item, FOO17 forwarded, TMUX not"
-# non-git dir: silent plain claude (stub), no herdr session started
-mkdir -p "$T/bin17" "$T/nogit17"
+# $HOME: silent plain claude (stub), no herdr session started
+mkdir -p "$T/bin17"
 printf '#!/bin/sh\necho "PLAIN $*"\n' >"$T/bin17/claude" && chmod +x "$T/bin17/claude"
-O17=$(cd "$T/nogit17" && TMUX=dummy PATH="$T/bin17:$PATH" COCKPIT_HERDR_SESSION=ck17none "$NVIM_CFG/scripts/cockpit-claude" --model x 2>"$T/s17n.err")
-[ "$O17" = "PLAIN --model x" ] || fail "non-git launcher printed: $O17"
-[ ! -s "$T/s17n.err" ] || fail "non-git bypass warned: $(cat "$T/s17n.err")"
-[ ! -e ~/.config/herdr/sessions/ck17none ] || fail "non-git bypass touched herdr"
-ok "non-git dir: silent plain claude, no herdr"
+O17=$(cd ~ && TMUX=dummy PATH="$T/bin17:$PATH" COCKPIT_HERDR_SESSION=ck17none "$NVIM_CFG/scripts/cockpit-claude" --model x 2>"$T/s17n.err")
+[ "$O17" = "PLAIN --model x" ] || fail "\$HOME launcher printed: $O17"
+[ ! -s "$T/s17n.err" ] || fail "\$HOME bypass warned: $(cat "$T/s17n.err")"
+[ ! -e ~/.config/herdr/sessions/ck17none ] || fail "\$HOME bypass touched herdr"
+ok "\$HOME: silent plain claude, no herdr"
 [ "$LAST" -le 17 ] && exit 0
 
 # --- 18: rail `s` spawns into the row's project; launcher spawn skips the readiness wait (headless) -----

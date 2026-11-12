@@ -14,7 +14,10 @@ local views = {} -- buf -> { kind, map, tid, att, ... }
 local drafts = {} -- tid -> { answers = { [qkey] = { opt = true } }, verdict, text }
 local ck = { last_att = {} } -- cockpit tab: tab, rail, work, thread (wins), tid
 
-local RAIL_W, THREAD_H = 36, 14
+local THREAD_H = 14
+-- rail geometry: a plain window — left column (width) or top strip (height); <C-w> resizes are remembered
+local rail_geo = { pos = "left", w = 50, h = 12 }
+local session_timer -- 3 s rail refresh while the cockpit is open (tmux sessions emit no events)
 
 local STATUS = util.STATUS
 local STRIP = {
@@ -81,7 +84,8 @@ local function style_wins()
     vim.wo[ck.thread][k] = val
   end
   vim.wo[ck.rail].signcolumn, vim.wo[ck.rail].wrap, vim.wo[ck.rail].cursorline = "no", false, true
-  vim.wo[ck.rail].winfixwidth = true
+  vim.wo[ck.rail].winfixwidth = rail_geo.pos == "left"
+  vim.wo[ck.rail].winfixheight = rail_geo.pos == "top"
   vim.wo[ck.thread].wrap, vim.wo[ck.thread].linebreak, vim.wo[ck.thread].winfixheight = true, true, true
   vim.wo[ck.work].wrap, vim.wo[ck.work].linebreak, vim.wo[ck.work].signcolumn = true, true, "yes"
 end
@@ -103,12 +107,39 @@ local function layout()
   ck.work = vim.api.nvim_get_current_win()
   vim.cmd("belowright " .. THREAD_H .. "split")
   ck.thread = vim.api.nvim_get_current_win()
-  vim.api.nvim_win_set_width(ck.rail, RAIL_W)
   vim.api.nvim_win_set_buf(ck.rail, M.rail_buf())
+  if rail_geo.pos == "top" then
+    vim.api.nvim_win_call(ck.rail, function()
+      vim.cmd("wincmd K")
+    end)
+    vim.api.nvim_win_set_height(ck.rail, rail_geo.h)
+  else
+    vim.api.nvim_win_set_width(ck.rail, rail_geo.w)
+  end
   vim.api.nvim_win_set_buf(ck.work, placeholder())
   vim.api.nvim_win_set_buf(ck.thread, placeholder())
   style_wins()
   vim.api.nvim_set_current_win(ck.rail)
+end
+
+-- A run without deliverables (e.g. a Stop-hook post) has nothing for the work window: give the
+-- thread the whole column and leave work as a one-row label
+local function size_thread()
+  if not (valid(ck.work) and valid(ck.thread)) then
+    return
+  end
+  if ck.thread_only then
+    local total = vim.api.nvim_win_get_height(ck.work) + vim.api.nvim_win_get_height(ck.thread)
+    vim.api.nvim_win_set_height(ck.thread, total - 1)
+  else
+    vim.api.nvim_win_set_height(ck.thread, THREAD_H)
+  end
+end
+
+local function no_deliverables()
+  local buf = scratch("cockpit://no-deliverables", "cockpit-empty")
+  set_lines(buf, { "  no deliverables · thread below" })
+  return buf
 end
 
 local function focus_rail()
@@ -118,9 +149,49 @@ local function focus_rail()
 end
 
 function M.toggle_rail()
-  if valid(ck.rail) then
+  if not valid(ck.rail) then
+    return
+  end
+  if rail_geo.pos == "top" then
+    local h = vim.api.nvim_win_get_height(ck.rail)
+    vim.api.nvim_win_set_height(ck.rail, h > 1 and 1 or rail_geo.h)
+  else
     local w = vim.api.nvim_win_get_width(ck.rail)
-    vim.api.nvim_win_set_width(ck.rail, w > 2 and 1 or RAIL_W)
+    vim.api.nvim_win_set_width(ck.rail, w > 2 and 1 or rail_geo.w)
+  end
+end
+
+-- gv: dock the rail as a left column or a full-width top strip
+function M.flip_rail()
+  if not valid(ck.rail) then
+    return
+  end
+  rail_geo.pos = rail_geo.pos == "left" and "top" or "left"
+  vim.wo[ck.rail].winfixwidth, vim.wo[ck.rail].winfixheight = false, false
+  vim.api.nvim_win_call(ck.rail, function()
+    vim.cmd(rail_geo.pos == "top" and "wincmd K" or "wincmd H")
+  end)
+  if rail_geo.pos == "top" then
+    vim.api.nvim_win_set_height(ck.rail, rail_geo.h)
+  else
+    vim.api.nvim_win_set_width(ck.rail, rail_geo.w)
+  end
+  size_thread()
+  style_wins()
+  M.render_rail(M.rail_buf())
+end
+
+-- remember the user's <C-w> resize of the rail (ignoring the 1-col/1-row collapsed state)
+function M.rail_resized(w)
+  if w ~= ck.rail then
+    return
+  end
+  if rail_geo.pos == "top" then
+    local h = vim.api.nvim_win_get_height(w)
+    rail_geo.h = h > 1 and h or rail_geo.h
+  else
+    local width = vim.api.nvim_win_get_width(w)
+    rail_geo.w = width > 2 and width or rail_geo.w
   end
 end
 
@@ -129,6 +200,9 @@ function M.close()
     return
   end
   require("cockpit.herdr").watch(false)
+  if session_timer then
+    session_timer:stop()
+  end
   vim.api.nvim_set_current_tabpage(ck.tab)
   if #vim.api.nvim_list_tabpages() > 1 then
     vim.cmd("tabclose")
@@ -170,6 +244,12 @@ end
 -- Open (or jump to) the cockpit tab
 function M.open()
   require("cockpit.herdr").watch(true)
+  session_timer = session_timer or assert(vim.uv.new_timer())
+  session_timer:start(3000, 3000, vim.schedule_wrap(function()
+    if valid(ck.rail) then
+      M.render_rail(M.rail_buf())
+    end
+  end))
   layout()
   M.render_rail(M.rail_buf())
   focus_rail()
@@ -482,6 +562,8 @@ function M.select(tid, focus, opts)
     end
   end
   local auto_diff = att and att.type == "diff" and att
+  ck.thread_only = not att
+  size_thread()
   if auto_diff then
     ck.last_att[tid] = att
     local pb = placeholder()
@@ -496,7 +578,7 @@ function M.select(tid, focus, opts)
   elseif att then
     M.open_attachment(tid, att, false)
   else
-    vim.api.nvim_win_set_buf(ck.work, placeholder())
+    vim.api.nvim_win_set_buf(ck.work, no_deliverables())
     vim.wo[ck.work].winbar = ""
   end
   local rail_buf = M.rail_buf()

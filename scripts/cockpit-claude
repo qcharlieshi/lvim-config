@@ -3,7 +3,8 @@
 # to it in this tmux pane. Looks like plain claude, but shows in the cockpit rail, can be forked and
 # survives the pane. Every failure falls back to plain claude after one warning line.
 # Bypass: COCKPIT_NO_HERDR=1, not in tmux, already inside herdr, -p/--print/-v/--version/-h/--help,
-# a subcommand / positional prompt (first arg not starting with -), or outside a git repo (silent).
+# a subcommand / positional prompt (first arg not starting with -), or cwd is $HOME or / (silent).
+# Outside git the cwd itself is the project (e.g. ~/dev/lilt).
 NVIM_CFG=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 
 plain() { exec claude "$@"; } # a script never sees the zsh claude() function: no recursion
@@ -14,7 +15,7 @@ warn() { printf 'cockpit-claude: %s — running plain claude\n' "$1" >&2; }
 for a in "$@"; do
   case $a in -p | --print | -v | --version | -h | --help) plain "$@" ;; esac
 done
-git rev-parse --show-toplevel >/dev/null 2>&1 || plain "$@" # no project to put it in: silently plain
+case $PWD in "$HOME" | /) plain "$@" ;; esac # no sensible project: silently plain
 
 H=(herdr)
 [ -n "${COCKPIT_HERDR_SESSION:-}" ] && H+=(--session "$COCKPIT_HERDR_SESSION")

@@ -160,15 +160,22 @@ local function real(p)
 end
 
 -- The project for the repo containing `dir` (a worktree counts as its main repo); creates a
--- one-repo project named after the repo when none has it. Returns the name, or nil outside git.
+-- one-repo project named after the repo when none has it. Outside git, `dir` itself is the "repo"
+-- (e.g. ~/dev/lilt, the org root holding many repos). Returns the name; nil only for $HOME and /,
+-- which would make a project of everything.
 function M.for_dir(dir)
   local top = git(dir, "--show-toplevel")
-  if not top then
-    return nil
+  local repo
+  if top then
+    local common = git(dir, "--path-format=absolute", "--git-common-dir")
+    repo = (common and vim.fs.basename(common) == ".git") and vim.fs.dirname(common) or top
+  else
+    repo = real(vim.fs.normalize(dir))
+    if repo == "/" or repo == real(vim.fn.expand("~")) then
+      return nil
+    end
   end
-  local common = git(dir, "--path-format=absolute", "--git-common-dir")
-  local repo = (common and vim.fs.basename(common) == ".git") and vim.fs.dirname(common) or top
-  local want = { [real(top)] = true, [real(repo)] = true }
+  local want = { [real(top or repo)] = true, [real(repo)] = true }
   local any
   for _, p in ipairs(M.list()) do
     for i, r in ipairs(p.repos) do

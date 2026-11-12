@@ -20,7 +20,7 @@ if not cwd or not herdr.ensure() then
 end
 local project = require("cockpit.projects").for_dir(cwd)
 if not project then
-  die("not in a git repo") -- the launcher checks this first and bypasses silently
+  die("no project for $HOME or /") -- the launcher checks this first and bypasses silently
 end
 
 -- Claude sees the launcher's environment (API keys, venv, `FOO=bar claude`), minus the tmux/herdr/

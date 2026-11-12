@@ -1,7 +1,7 @@
 -- cockpit rail model: pure tree of projects > agents (forks nested) > threads. No buffers, no side effects.
 --
 -- tree.build(opts?) -> Node[]  (flat, depth-first, display order; every node also keeps its own `children`)
---   opts: show_archived?, threads?, agents?, registry?, projects?   (fixtures; absent => live sources)
+--   opts: show_archived?, threads?, agents?, sessions?, herdr_status?, registry?, projects?   (fixtures; absent => live sources)
 --   opts.registry fixture shape: table<project, table<terminal_id, Rec>>  (live: registry.all(project) per project)
 --
 -- Node fields (all nodes): kind = "header"|"project"|"agent"|"thread"|"past"|"unassigned", key, depth (0-based)
@@ -21,7 +21,24 @@ local M = {}
 local RANK = { needs_you = 1, unread = 2, working = 3, replied = 4, read = 5, done = 6 }
 
 local function owner_tid(t)
-  return t.owner and t.owner.herdr and t.owner.herdr.terminal_id
+  local h = t.owner and t.owner.herdr and t.owner.herdr.terminal_id
+  if h then return h end
+  -- a hand-started Claude session (sessions.lua) owns the threads its pid posted
+  local pid = t.session and t.session.pid
+  return pid and ("cc:" .. pid) or nil
+end
+
+local SESSION_STATUS = { busy = "working", waiting = "blocked", idle = "idle" }
+
+-- defined project whose repo contains cwd (longest repo path wins), else the cwd basename as a group
+local function project_for_cwd(cwd, plist)
+  local best, len = nil, -1
+  for _, p in ipairs(plist) do
+    for _, r in ipairs(p.repos or {}) do
+      if (cwd == r or cwd:sub(1, #r + 1) == r .. "/") and #r > len then best, len = p.name, #r end
+    end
+  end
+  return best or (cwd and vim.fs.basename(cwd)) or nil
 end
 
 -- urgency tier: lower sorts first
@@ -138,6 +155,20 @@ function M.build(opts)
   for _, a in pairs(cache) do
     if a.terminal_id then live[a.terminal_id] = a end
   end
+  -- herdr agents: model / context / last words from the statusline file tagged with their pane
+  local fixture = opts.agents ~= nil -- fixture runs never read live session files
+  local by_pane = opts.herdr_status or (fixture and {} or require("cockpit.sessions").by_herdr_pane())
+  for tid, a in pairs(live) do
+    if by_pane[a.pane_id] then live[tid] = vim.tbl_extend("force", a, { session = by_pane[a.pane_id] }) end
+  end
+  -- hand-started Claude sessions in tmux panes: agents keyed "cc:<pid>", shaped like a herdr entry
+  for _, s in ipairs(opts.sessions or (fixture and {} or require("cockpit.sessions").list())) do
+    live["cc:" .. s.pid] = {
+      name = s.name, target = s.pane, kind = "claude", source = "session", session = s,
+      project = project_for_cwd(s.cwd, plist), status = SESSION_STATUS[s.status] or s.status or "unknown",
+      pane_id = s.pane, terminal_id = "cc:" .. s.pid, cwd = s.cwd,
+    }
+  end
 
   -- project names: defined projects plus any referenced by live agents
   local names, seen = {}, {}
@@ -221,6 +252,10 @@ function M.build(opts)
   for _, p in ipairs(projects) do flatten(p, 0, out) end
 
   local un_children = nest(unassigned, ctx)
+  for _, c in ipairs(un_children) do sum(totals, c.sub) end
+  for _, t in ipairs(orphans) do
+    if t.status == "needs_you" then totals.needs_you = totals.needs_you + 1 end
+  end
   sort_threads(orphans)
   for _, t in ipairs(orphans) do
     un_children[#un_children + 1] = { kind = "thread", key = "t:" .. t.id, thread = t }

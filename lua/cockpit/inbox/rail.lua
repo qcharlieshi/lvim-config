@@ -4,7 +4,8 @@ local util = require("cockpit.inbox.util")
 local store = require("cockpit.inbox.store")
 local M = {}
 
-local W = 35 -- RAIL_W (36) minus one spare column
+local W = 49 -- usable columns; recomputed from the rail window's width on every render
+local WIDE = 90 -- at or above this width (rail docked as a top strip) cards squeeze to 2 lines
 local EXPR = "v:lua.require'cockpit.inbox.rail'.foldexpr(v:lnum)"
 local TEXT = "v:lua.require'cockpit.inbox.rail'.foldtext()"
 -- buf -> { map = row->node, rows = key->row, levels = row->fold level, parts = row->segments,
@@ -93,6 +94,126 @@ local function indent(node)
   return { string.rep("  ", node.depth) }
 end
 
+-- word-wrap s to at most n lines of `room` columns; the last line gets … when cut
+local function wrap(s, room, n)
+  local words = vim.split(vim.trim((s or ""):gsub("%s+", " ")), " ", { plain = true })
+  local out, cur = {}, ""
+  for i, w in ipairs(words) do
+    local cand = cur == "" and w or (cur .. " " .. w)
+    if dw(cand) <= room then
+      cur = cand
+    elseif dw(w) > room / 2 then
+      -- a long token (URL, path): hard-split it across lines instead of leaving a stub line
+      local acc = ""
+      for _, ch in ipairs(vim.fn.split(cand, "\\zs")) do
+        if dw(acc .. ch) > room then
+          out[#out + 1] = acc
+          if #out == n then
+            out[n] = fit(acc .. " " .. table.concat(words, " ", i), room) -- … marks the cut
+            return out
+          end
+          acc = ""
+        end
+        acc = acc .. ch
+      end
+      cur = vim.trim(acc)
+    else
+      if cur ~= "" then
+        out[#out + 1] = cur
+      end
+      if #out == n then
+        out[n] = fit(out[n] .. " " .. table.concat(words, " ", i), room)
+        return out
+      end
+      cur = fit(w, room)
+    end
+  end
+  if cur ~= "" then
+    out[#out + 1] = cur
+  end
+  return out
+end
+
+local STATUS_WORD = { working = "working", blocked = "blocked", idle = "idle", done = "done" }
+
+-- "▰▰▰▱▱ 61%" (or "130k tok" when only the transcript's token count is known)
+local function ctx_parts(s)
+  if s.ctx_pct then
+    local n = math.floor(s.ctx_pct / 20 + 0.5)
+    local hl = s.ctx_pct >= 80 and "DiagnosticError" or s.ctx_pct >= 60 and "DiagnosticWarn" or "DiagnosticOk"
+    return { { string.rep("▰", n) .. string.rep("▱", 5 - n), hl }, { (" %d%%"):format(s.ctx_pct), hl } }
+  elseif s.tokens then
+    return { { ("%dk tok"):format(math.floor(s.tokens / 1000)), "Comment" } }
+  end
+  return {}
+end
+
+-- the message under an agent's name: what it waits on when blocked, else its last words
+local function agent_message(node)
+  local a, s = node.agent or {}, node.agent and node.agent.session
+  if node.status == "blocked" then
+    local d = (s and s.waiting) or detail[node.terminal_id]
+    if d and d ~= "" then
+      return d, "DiagnosticWarn"
+    end
+  end
+  return (s and s.text) or a.title, "Comment"
+end
+
+-- live agent: a card of up to 4 lines (2 when the rail is wide). Returns a list of parts lists.
+local function agent_card(node)
+  local g = util.AGENT[node.status] or util.AGENT.unknown
+  local a, s = node.agent or {}, (node.agent and node.agent.session) or {}
+  local pad = { string.rep("  ", node.depth + 1) }
+  local glyph = node.fork and { "⑂ ", "Special" } or { g[1] .. " ", g[2] }
+  local suffix = (node.fork == "worktree" and " wt" or "") .. (node.orphan_of and (" (from " .. node.orphan_of .. ")") or "")
+  local right = { { STATUS_WORD[node.status] or node.status or "?", g[2] } }
+  if node.recent and node.recent > 0 or s.ts then
+    right[#right + 1] = { " · " .. util.ago(math.max(node.recent or 0, s.ts or 0)), "Comment" }
+  end
+  local meta = {}
+  local model = s.model or (a.source ~= "session" and a.kind) or nil
+  if model then
+    meta[#meta + 1] = { model, "Special" }
+  end
+  local ctx = ctx_parts(s)
+  if #ctx > 0 then
+    meta[#meta + 1] = { " · " }
+    vim.list_extend(meta, ctx)
+  end
+  if a.source ~= "session" then
+    meta[#meta + 1] = { " · herdr " .. (a.name or ""), "Comment" }
+  end
+  local title = s.session_name and a.source ~= "session" and s.session_name or node.name
+  local msg, msg_hl = agent_message(node)
+  local cards = {}
+  if W >= WIDE then
+    -- glyph name · model ctx …… status · ago / message on one line
+    local left = { indent(node), glyph }
+    local tail = vim.list_extend({ { "  " } }, meta)
+    local name_room = W - width(left) - dw(suffix) - width(tail) - width(right) - 2
+    vim.list_extend(left, { { fit(title, math.max(8, name_room)), "Title" }, { suffix, "Comment" } })
+    cards[1] = line(vim.list_extend(left, tail), right)
+    if msg and msg ~= "" then
+      cards[2] = { pad, { fit(msg, W - width({ pad })), msg_hl } }
+    end
+    return cards
+  end
+  local left = { indent(node), glyph }
+  local name_room = W - width(left) - dw(suffix) - width(right) - 1
+  vim.list_extend(left, { { fit(title, name_room), "Title" }, { suffix, "Comment" } })
+  cards[1] = line(left, right)
+  if #meta > 0 then
+    cards[#cards + 1] = vim.list_extend({ pad }, meta)
+  end
+  if msg and msg ~= "" then
+    for _, l in ipairs(wrap(msg, W - width({ pad }), 2)) do
+      cards[#cards + 1] = { pad, { l, msg_hl } }
+    end
+  end
+  return cards
+end
+
 local function agent_parts(node)
   local g = util.AGENT[node.status] or util.AGENT.unknown
   local left = { indent(node), node.fork and { "⑂ ", "Special" } or { g[1] .. " ", g[2] } }
@@ -170,8 +291,8 @@ local function level(node)
     return "0"
   elseif node.kind == "project" or node.kind == "unassigned" then
     return ">1"
-  elseif node.children and #node.children > 0 then
-    return ">" .. (node.depth + 1)
+  elseif (node.children and #node.children > 0) or (node.kind == "agent" and node.live) then
+    return ">" .. (node.depth + 1) -- a live agent's card folds down to its first line
   end
   return tostring(node.depth)
 end
@@ -240,6 +361,9 @@ local function apply_folds(buf, w, cur)
     if cur then
       local n = vim.api.nvim_buf_line_count(buf)
       local r = (cur.key and v.rows[cur.key]) or math.min(cur.row, n)
+      if cur.key and v.rows[cur.key] and cur.off then
+        r = math.min(r + cur.off, n)
+      end
       vim.fn.winrestview({ topline = math.min(cur.topline, n) })
       vim.api.nvim_win_set_cursor(w, { r, 0 })
     end
@@ -301,14 +425,20 @@ function M.render(buf)
         end
       end
       local c = vim.api.nvim_win_get_cursor(w)[1]
-      cursors[w] = { key = v.map[c] and v.map[c].key, row = c, topline = vim.fn.line("w0") }
+      local key = v.map[c] and v.map[c].key
+      local off = key and v.rows[key] and (c - v.rows[key]) or 0
+      cursors[w] = { key = key, row = c, off = off, topline = vim.fn.line("w0") }
     end)
+  end
+  local wins = vim.fn.win_findbuf(buf)
+  if #wins > 0 then
+    W = math.max(24, vim.api.nvim_win_get_width(wins[1]) - 1)
   end
 
   local nodes = require("cockpit.inbox.tree").build({ show_archived = show_archived })
   local lines, marks, map, rows, levels, parts_by = {}, {}, {}, {}, {}, {}
   for _, node in ipairs(nodes) do
-    if node.kind == "agent" and node.live then
+    if node.kind == "agent" and node.live and node.agent.source ~= "session" then
       if node.status == "blocked" then
         if detail[node.terminal_id] == nil then
           fetch_detail(node.terminal_id, node.agent.target)
@@ -323,10 +453,15 @@ function M.render(buf)
         v.closed[node.key] = true
       end
     end
-    local parts = parts_for(node)
-    local r = #lines + 1
-    lines[r] = util.segs(r - 1, parts, marks)
-    map[r], rows[node.key], levels[r], parts_by[r] = node, r, level(node), parts
+    local card = (node.kind == "agent" and node.live) and agent_card(node) or { parts_for(node) }
+    local first = #lines + 1
+    rows[node.key] = first
+    for i, parts in ipairs(card) do
+      local r = #lines + 1
+      lines[r] = util.segs(r - 1, parts, marks)
+      -- card lines after the first sit inside the agent's own fold
+      map[r], levels[r], parts_by[r] = node, i == 1 and level(node) or tostring(node.depth + 1), parts
+    end
   end
   if #nodes == 1 then
     for _, l in ipairs({ "", "  (no projects — s spawns an agent)" }) do
@@ -490,6 +625,7 @@ local HELP = {
   "  X     kill + archive its threads",
   "  f F   fork (continue / worktree)",
   "  i     interrupt      gt  attach",
+  "        (tmux sessions: i gt only)",
   "  <CR>  open newest thread",
   "        (past agent: archived threads)",
   "Thread row",
@@ -500,6 +636,7 @@ local HELP = {
   "Any row",
   "  s spawn   A agent picker   R refresh",
   "  g. show archived   q close",
+  "  gv rail left/top   <C-w>< > + - resize",
   "  za zo zc zM zR zj zk  folds",
 }
 
@@ -589,11 +726,20 @@ function M.attach(buf)
       end
     end,
   })
-  local function with_agent(fn, live)
+  local sessions = require("cockpit.sessions")
+  local function is_session(a)
+    return a.agent and a.agent.source == "session"
+  end
+  -- herdr_only: fork/kill need herdr; a hand-started tmux session can't take them
+  local function with_agent(fn, live, herdr_only)
     return function()
       local a = agent_of(buf, cursor_node(buf))
       if not a or (live and not a.live) then
         return vim.notify("cockpit: no " .. (live and "live " or "") .. "agent on this row", vim.log.levels.WARN)
+      end
+      if herdr_only and is_session(a) then
+        return vim.notify("cockpit: " .. a.name .. " runs in tmux pane " .. a.agent.pane_id .. ", not herdr — gt to go there",
+          vim.log.levels.WARN)
       end
       fn(a)
     end
@@ -610,7 +756,7 @@ function M.attach(buf)
   map(buf, "<CR>", function()
     open(buf, cursor_node(buf))
   end, "Open")
-  map(buf, "X", with_agent(M.kill_agent), "Kill agent")
+  map(buf, "X", with_agent(M.kill_agent, false, true), "Kill agent")
   local function fork(kind)
     return function(a)
       vim.ui.input({ prompt = "Fork prompt (optional): " }, function(text)
@@ -623,14 +769,33 @@ function M.attach(buf)
       end)
     end
   end
-  map(buf, "f", with_agent(fork("continue"), true), "Fork agent (continue)")
-  map(buf, "F", with_agent(fork("worktree"), true), "Fork agent (worktree)")
+  map(buf, "f", with_agent(fork("continue"), true, true), "Fork agent (continue)")
+  map(buf, "F", with_agent(fork("worktree"), true, true), "Fork agent (worktree)")
   map(buf, "i", with_agent(function(a)
+    if is_session(a) then
+      return sessions.interrupt(a.agent.pane_id)
+    end
     herdr.interrupt(a.agent.target)
   end, true), "Interrupt agent")
   map(buf, "gt", with_agent(function(a)
+    if is_session(a) then
+      return sessions.attach(a.agent.pane_id)
+    end
     herdr.attach(a.agent.target)
   end, true), "Attach to agent")
+  map(buf, "gv", function()
+    ui().flip_rail()
+  end, "Rail: left column / top strip")
+  vim.api.nvim_create_autocmd("WinResized", {
+    callback = function()
+      for _, w in ipairs(vim.v.event.windows or {}) do
+        if vim.api.nvim_win_is_valid(w) and vim.api.nvim_win_get_buf(w) == buf then
+          ui().rail_resized(w)
+          return M.render(buf)
+        end
+      end
+    end,
+  })
   map(buf, "a", with_thread(function(t)
     store.append(store.thread_file(t.id), { kind = "state", archived = not t.archived })
   end), "Archive / unarchive")
