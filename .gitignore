@@ -9,3 +9,4 @@ data
 .aider*
 features/
 scripts/__pycache__/
+.superpowers/
