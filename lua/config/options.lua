@@ -21,3 +21,14 @@ vim.opt.scrolloff = 1
 -- read by scrolling sideways. Global option, so it lives here, not in the
 -- FileType autocmd.
 vim.opt.sidescroll = 1
+
+-- Python LSP: pyrefly (Meta, Rust) instead of LazyVim's default pyright (Node).
+-- Picked over Astral's `ty`, the other Rust contender, purely on stability:
+-- pyrefly hit a stable 1.0 on 2026-05-12 and is the default type checker for
+-- Instagram/PyTorch/JAX, while ty is still on 0.0.x with an explicit "breaking
+-- changes between any two versions" policy.
+--
+-- Read by lazyvim.plugins.extras.lang.python at spec-source time, which flips
+-- pyright/basedpyright/ruff_lsp off and enables pyrefly + ruff. Only works
+-- because LazyVim loads config.options before sourcing plugin modules.
+vim.g.lazyvim_python_lsp = "pyrefly"

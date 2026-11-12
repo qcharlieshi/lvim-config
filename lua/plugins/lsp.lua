@@ -80,13 +80,6 @@ return {
         --     },
         --   },
         -- },
-        ruff = {
-          enabled = false,
-        },
-        -- Disable pyright
-        pyright = {
-          enabled = false,
-        },
       },
     },
   },
