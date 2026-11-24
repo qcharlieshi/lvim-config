@@ -231,6 +231,9 @@ T["unacked replies match the golden fixtures"] = function()
   local expected = h.load_fixtures()
   for name, want in pairs(expected) do
     eq({ name, ids(thread(name).unacked) }, { name, want.pending_replies })
+    if want.undelivered then
+      eq({ name, ids(thread(name).undelivered) }, { name, want.undelivered })
+    end
   end
 end
 

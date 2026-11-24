@@ -88,5 +88,18 @@
     "open_questions": [],
     "pending_replies": [],
     "status": "unread"
+  },
+  "outbox": {
+    "status": "replied",
+    "archived": false,
+    "drafts": [],
+    "open_questions": [],
+    "pending_replies": [
+      "r1",
+      "r2"
+    ],
+    "undelivered": [
+      "r1"
+    ]
   }
 }
