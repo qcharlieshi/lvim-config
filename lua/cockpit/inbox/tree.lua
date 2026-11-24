@@ -27,6 +27,7 @@ local function owner_tid(t)
   local pid = t.session and t.session.pid
   return pid and ("cc:" .. pid) or nil
 end
+M.owner_tid = owner_tid
 
 local SESSION_STATUS = { busy = "working", waiting = "blocked", idle = "idle" }
 

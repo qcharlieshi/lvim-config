@@ -498,8 +498,8 @@ local function agent_of(buf, node)
   if node and node.kind == "agent" then
     return node
   elseif node and node.kind == "thread" then
-    local o = node.thread.owner and node.thread.owner.herdr
-    return o and M.node(buf, M.row(buf, "a:" .. o.terminal_id))
+    local tid = require("cockpit.inbox.tree").owner_tid(node.thread)
+    return tid and M.node(buf, M.row(buf, "a:" .. tid))
   end
 end
 
@@ -580,9 +580,9 @@ function M.kill_agent(node)
   local project = (node.rec and node.rec.project) or (a and a.project)
   local recs = project and registry.all(project) or {}
   local rec = recs[tid]
+  local owner_tid = require("cockpit.inbox.tree").owner_tid
   local owned = vim.tbl_filter(function(t)
-    local o = t.owner and t.owner.herdr
-    return not t.archived and o and o.terminal_id == tid
+    return not t.archived and owner_tid(t) == tid
   end, store.threads())
   local forks = 0
   for _, r in pairs(recs) do
@@ -597,7 +597,13 @@ function M.kill_agent(node)
   if vim.fn.confirm(msg, "&Yes\n&No", 2) ~= 1 then
     return
   end
-  if a then
+  if a and a.source == "session" then
+    -- hand-started tmux session: end Claude, leave the pane and its shell
+    local ok, err = vim.uv.kill(a.session.pid, "sigterm")
+    if not ok and err then
+      return vim.notify("cockpit: kill failed — " .. err, vim.log.levels.ERROR)
+    end
+  elseif a then
     local err = herdr.kill(a.target)
     if err then
       return vim.notify("cockpit: kill failed — " .. err.message, vim.log.levels.ERROR)
@@ -625,7 +631,7 @@ local HELP = {
   "  X     kill + archive its threads",
   "  f F   fork (continue / worktree)",
   "  i     interrupt      gt  attach",
-  "        (tmux sessions: i gt only)",
+  "        (tmux sessions: no forks; X ends claude, pane stays)",
   "  <CR>  open newest thread",
   "        (past agent: archived threads)",
   "Thread row",
@@ -756,7 +762,7 @@ function M.attach(buf)
   map(buf, "<CR>", function()
     open(buf, cursor_node(buf))
   end, "Open")
-  map(buf, "X", with_agent(M.kill_agent, false, true), "Kill agent")
+  map(buf, "X", with_agent(M.kill_agent, false, false), "Kill agent")
   local function fork(kind)
     return function(a)
       vim.ui.input({ prompt = "Fork prompt (optional): " }, function(text)
