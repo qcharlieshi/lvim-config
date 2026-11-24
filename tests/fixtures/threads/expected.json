@@ -67,5 +67,26 @@
     "open_questions": [],
     "status": "unread",
     "pending_replies": []
+  },
+  "same_second": {
+    "archived": false,
+    "drafts": [],
+    "open_questions": [],
+    "pending_replies": [],
+    "status": "unread"
+  },
+  "read_same_second": {
+    "archived": false,
+    "drafts": [],
+    "open_questions": [],
+    "pending_replies": [],
+    "status": "read"
+  },
+  "marked_unread": {
+    "archived": false,
+    "drafts": [],
+    "open_questions": [],
+    "pending_replies": [],
+    "status": "unread"
   }
 }

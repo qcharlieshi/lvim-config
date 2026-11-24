@@ -124,9 +124,12 @@ function M.thread(id)
   if #events == 0 then
     return nil
   end
-  local t = { id = id, messages = {}, sent = {}, read_ts = 0, archived = false, last_ts = 0 }
+  -- read_seq: index of the event that marked the thread read. Read/unread compares log order, not ts: a message
+  -- landing in the same second the thread was opened is still unread
+  local t = { id = id, messages = {}, sent = {}, read_ts = 0, read_seq = 0, archived = false, last_ts = 0 }
   local notes, deleted, sent_ids, rounds = {}, {}, {}, {}
-  for _, e in ipairs(events) do
+  for i, e in ipairs(events) do
+    e.seq = i
     if e.kind == "message" then
       t.title = t.title or e.title
       t.project = t.project or e.project
@@ -155,6 +158,7 @@ function M.thread(id)
     elseif e.kind == "state" then
       if e.read ~= nil then
         t.read_ts = e.read and e.ts or 0
+        t.read_seq = e.read and i or 0
       end
       if e.archived ~= nil then
         t.archived = e.archived
@@ -175,6 +179,7 @@ function M.thread(id)
   end
 
   local last = t.messages[#t.messages]
+  t.unread = last ~= nil and last.kind == "message" and last.seq > t.read_seq
   t.agent = t.session and t.session.agent or "agent"
   t.open_questions = {}
   if last and last.kind == "message" then
@@ -195,7 +200,7 @@ function M.thread(id)
     t.status = "replied"
   elseif #t.open_questions > 0 or last.gate then
     t.status = "needs_you"
-  elseif last.ts > t.read_ts then
+  elseif t.unread then
     t.status = "unread"
   else
     t.status = "read"
