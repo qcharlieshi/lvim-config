@@ -145,4 +145,47 @@ assert e["session"]["session_id"] == "sess-fake", e["session"]
   ok "registry keyed by session (legacy superseded), owner events win, CLI finds the Claude session via ancestors"
 fi
 
+# --- 21: reconcile learns session changes; late rename to the ticket (herdr stubbed) ----------------------
+if want 21; then
+  echo "21: learn sessions + late rename"
+  cat >"$T/t21.lua" <<'LUA'
+local h, registry = require("cockpit.herdr"), require("cockpit.registry")
+require("cockpit.projects").save({ name = "lilt", repos = { vim.env.T .. "/org21" } })
+registry.append("lilt", { name = "lilt-9", project = "lilt", terminal_id = "tL", session = "S1" })
+registry.append("lilt", { name = "mine", project = "lilt", terminal_id = "tM", session = "M1" })
+local cache = {
+  ["lilt-9"] = { name = "lilt-9", target = "lilt-9", project = "lilt", terminal_id = "tL", session_id = "S2",
+    tab_id = "w1:t2", title = "GPT-5 notes", status = "idle" },
+  mine = { name = "mine", target = "mine", project = "lilt", terminal_id = "tM", session_id = "M1",
+    tab_id = "w1:t3", title = "ENG-1 hand named", status = "idle" },
+}
+h.agents = function() return cache end
+local calls = {}
+h.request = function(method, params, cb)
+  calls[#calls + 1] = method .. " " .. (params.name or params.label or "")
+  local res = method == "tab.get" and { tab = { label = "lilt-9" } } or {}
+  if cb then return cb(nil, res) end
+  return nil, res
+end
+h.learn()
+local rec = registry.by_terminal("lilt", "tL")
+assert(rec.session == "S2" and rec.name == "lilt-9", vim.inspect(rec)) -- /clear: the seat's new session is learned
+assert(registry.all("lilt").S1, "earlier session record lost") -- stays for Past
+assert(#calls == 0, "renamed on noise: " .. vim.inspect(calls)) -- RF3: GPT-5 is not a ticket
+cache["lilt-9"].title = "ENG-35131 Slack assist POC"
+h.learn()
+assert(vim.tbl_contains(calls, "agent.rename eng-35131") and vim.tbl_contains(calls, "tab.rename eng-35131"), vim.inspect(calls))
+rec = registry.by_terminal("lilt", "tL")
+assert(rec.name == "eng-35131" and rec.renamed and rec.session == "S2", vim.inspect(rec))
+calls = {}
+cache["lilt-9"].name = "eng-35131"
+h.learn()
+assert(#calls == 0, "renamed twice: " .. vim.inspect(calls))
+assert(registry.by_terminal("lilt", "tM").name == "mine") -- hand-set names are never touched
+print("T21 OK")
+LUA
+  nlua "$T/t21.lua" 2>&1 | tee "$T/t21.out" | grep -q "T21 OK" || { cat "$T/t21.out"; fail "section 21"; }
+  ok "learn(): /clear appends the seat's new session; ENG title renames agent + tab once; noise and hand-set names untouched"
+fi
+
 echo "model smoke: all requested sections passed"

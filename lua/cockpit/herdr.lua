@@ -192,12 +192,56 @@ function M.reconcile(cb)
       reconciled = not werr and not err
       if not err then
         apply(res.agents)
+        local ok, lerr = pcall(M.learn)
+        if not ok then
+          vim.notify("cockpit: learn failed — " .. tostring(lerr), vim.log.levels.WARN)
+        end
       end
       if cb then
         cb()
       end
     end)
   end)
+end
+
+-- After each reconcile: a seat (terminal) whose Claude session changed (/clear, restart) gets a registry record
+-- for the new session, so the earlier one goes to Past. An agent still on its fallback name (<project>-<n>) is
+-- renamed once to the ticket its session title names (agent + tab), if that name is free.
+local learned = {} -- session ids already handled this nvim session (reconciles can overlap)
+function M.learn()
+  local registry, ticket = require("cockpit.registry"), require("cockpit.ticket")
+  local agents = M.agents()
+  local live_names = {}
+  for _, a in pairs(agents) do
+    if a.name then
+      live_names[a.name] = true
+    end
+  end
+  for _, a in pairs(agents) do
+    local sid, tid, p = a.session_id, a.terminal_id, a.project
+    local rec = sid and tid and p and registry.by_terminal(p, tid)
+    if rec and rec.session ~= sid and not learned[sid] then
+      learned[sid] = true
+      rec = vim.tbl_extend("force", rec, { session = sid, pane_id = a.pane_id, tab_id = a.tab_id })
+      rec.moved, rec.renamed, rec.dead = nil, nil, nil
+      registry.append(p, rec)
+    end
+    local fallback = rec and a.name and rec.name == a.name and a.name:match("^" .. vim.pesc(p) .. "%-%d+$")
+    if fallback and rec.session == sid and not rec.renamed then
+      local key = ticket.find(a.title)
+      local slug = key and ticket.slug(key)
+      if slug and not live_names[slug] and not M.request("agent.rename", { target = a.name, name = slug }) then
+        live_names[slug] = true
+        if a.tab_id then
+          local _, t = M.request("tab.get", { tab_id = a.tab_id })
+          if t and t.tab and t.tab.label == a.name then
+            M.request("tab.rename", { tab_id = a.tab_id, label = slug })
+          end
+        end
+        registry.append(p, vim.tbl_extend("force", rec, { name = slug, renamed = true }))
+      end
+    end
+  end
 end
 
 local function schedule_reconcile()
