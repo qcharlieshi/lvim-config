@@ -548,32 +548,7 @@ local function open(buf, node)
   elseif node.kind ~= "agent" then
     return vim.cmd("silent! normal! za")
   end
-  if node.live then
-    local newest
-    for _, c in ipairs(node.children) do
-      if c.kind == "thread" and (not newest or (c.thread.last_ts or 0) > (newest.last_ts or 0)) then
-        newest = c.thread
-      end
-    end
-    return newest and open_thread(newest) or vim.notify("cockpit: " .. node.name .. " has no threads yet")
-  end
-  -- past agent: pick one of its archived threads
-  local list = vim.tbl_filter(function(t)
-    return t.archived and owns(node, t)
-  end, store.threads())
-  if #list == 0 then
-    return vim.notify("cockpit: " .. node.name .. " has no archived threads")
-  end
-  vim.ui.select(list, {
-    prompt = node.name .. " · archived threads",
-    format_item = function(t)
-      return ("%s · %s"):format(t.title or t.id, util.ago(t.last_ts))
-    end,
-  }, function(t)
-    if t then
-      open_thread(t)
-    end
-  end)
+  ui().select_agent(node)
 end
 
 -- X: kill the agent's pane, archive the threads it owns, mark it dead in the registry.
@@ -706,10 +681,9 @@ local HELP = {
   "  N     fresh conversation (new tab, same dir)",
   "  m     move to project",
   "  f F   fork (continue / worktree)",
-  "  i     interrupt      gt  attach",
+  "  i     interrupt      gt  focus in herdr   gT  attach (tmux)",
   "        (tmux sessions: no forks; X ends claude, pane stays)",
-  "  <CR>  open newest thread",
-  "        (past agent: archived threads)",
+  "  <CR>  conversation (transcript + posts, r chat)",
   "Thread row",
   "  <CR>  open          a  archive",
   "  u     toggle unread",
@@ -862,13 +836,18 @@ function M.attach(buf)
     return function(a)
       local p = a.agent.project and require("cockpit.registry").all(a.agent.project)[a.agent.terminal_id]
       require("cockpit.profiles").pick(function(profile)
-        vim.ui.input({ prompt = "Fork prompt (optional): " }, function(text)
-          if text == nil then
+        vim.ui.input({ prompt = "Fork name (empty = auto): " }, function(agent)
+          if agent == nil then
             return -- cancelled
           end
-          require("cockpit.forks")[kind](a.agent, text, function()
-            ui().refresh()
-          end, profile)
+          vim.ui.input({ prompt = "Fork prompt (optional): " }, function(text)
+            if text == nil then
+              return -- cancelled
+            end
+            require("cockpit.forks")[kind](a.agent, text, function()
+              ui().refresh()
+            end, profile, agent)
+          end)
         end)
       end, p and p.profile)
     end
@@ -893,9 +872,20 @@ function M.attach(buf)
       if is_session(a) then
         return sessions.attach(a.agent.pane_id)
       end
+      herdr.focus(a.agent.target)
+    end, true),
+    "Focus agent in herdr"
+  )
+  map(
+    buf,
+    "gT",
+    with_agent(function(a)
+      if is_session(a) then
+        return sessions.attach(a.agent.pane_id)
+      end
       herdr.attach(a.agent.target)
     end, true),
-    "Attach to agent"
+    "Attach to agent (tmux)"
   )
   map(buf, "gv", function()
     ui().flip_rail()

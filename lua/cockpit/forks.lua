@@ -68,7 +68,11 @@ local function start(parent, session, cwd, add_dirs, system, prompt, rec, cb, un
   local herdr = require("cockpit.herdr")
   local project = parent.project
   local env = { COCKPIT_PROJECT = project, COCKPIT_INBOX_DIR = vim.env.COCKPIT_INBOX_DIR, COCKPIT_PARENT = parent.name }
-  local name = herdr.agent_name(project, cwd)
+  -- typed name › words of the fork prompt › the parent's name (free_name adds -2, -3, …)
+  local naming = require("cockpit.naming")
+  local base = naming.base(project, { name = rec.name, prompt = prompt }) or naming.slug(parent.name)
+  rec.name = nil
+  local name = herdr.free_name(project, base)
   local err, res = herdr.request("tab.create", {
     workspace_id = parent.workspace_id,
     cwd = cwd,
@@ -109,15 +113,16 @@ local function start(parent, session, cwd, add_dirs, system, prompt, rec, cb, un
   end)
 end
 
--- f: fork in the parent's own checkout. cb(err, name). profile: cockpit.profiles name.
-function M.continue(parent, prompt, cb, profile)
+-- f: fork in the parent's own checkout. cb(err, name). profile: cockpit.profiles name; name: typed
+-- agent name (empty → derived, see start).
+function M.continue(parent, prompt, cb, profile, name)
   cb = cb or function() end
   parent = named(parent)
   local p, session = check(parent)
   if not p then
     return cb({ code = "no_session", message = "cannot fork " .. parent.name })
   end
-  local rec = { fork = "continue", profile = profile or "default" }
+  local rec = { fork = "continue", profile = profile or "default", name = name }
   start(parent, session, parent.cwd, vim.list_slice(p.repos, 2), preamble(parent), prompt, rec, cb)
 end
 
@@ -144,8 +149,8 @@ local function rollback(wts)
   end
 end
 
--- F: fork into fresh worktrees of every project repo. cb(err, name). profile: cockpit.profiles name.
-function M.worktree(parent, prompt, cb, profile)
+-- F: fork into fresh worktrees of every project repo. cb(err, name). profile, name: as for continue.
+function M.worktree(parent, prompt, cb, profile, name)
   cb = cb or function() end
   parent = named(parent)
   local p, session = check(parent)
@@ -183,7 +188,7 @@ function M.worktree(parent, prompt, cb, profile)
     table.concat(paths, ", "),
     branch
   ) .. preamble(parent)
-  local rec = { fork = "worktree", worktrees = wts, profile = profile or "default" }
+  local rec = { fork = "worktree", worktrees = wts, profile = profile or "default", name = name }
   start(parent, session, paths[1], vim.list_slice(paths, 2), system, prompt, rec, cb, function()
     rollback(wts)
   end)

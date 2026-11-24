@@ -228,7 +228,8 @@ function M.learn()
     local fallback = rec and a.name and rec.name == a.name and a.name:match("^" .. vim.pesc(p) .. "%-%d+$")
     if fallback and rec.session == sid and not rec.renamed then
       local key = ticket.find(a.title)
-      local slug = key and ticket.slug(key)
+      local naming = require("cockpit.naming")
+      local slug = key and naming.slug(naming.slug(p) .. "-" .. ticket.slug(key), naming.MAX)
       if slug and not live_names[slug] and not M.request("agent.rename", { target = a.name, name = slug }) then
         live_names[slug] = true
         if a.tab_id then
@@ -367,15 +368,27 @@ local function fork_branch(repo, name)
   return vim.trim(out.stdout or "") ~= ""
 end
 
--- The herdr name (= tab label) for a new agent: the ticket of its dir (worktree branch / dir name), else the
--- project's ticket, else one named in the prompt -> eng-35131, eng-35131-2, ...; without a ticket <project>-<n>.
+-- Name base for a new agent (cockpit.naming: <project>-<label>), ticket first: a typed name; else the ticket of
+-- its dir (worktree branch / dir name) or the project's ticket (lilt-eng-35131); else naming.base (ticket in the
+-- prompt, a meaningful branch, words of the prompt). nil -> the numbered <project>-<n> fallback.
+function M.name_base(project, dir, prompt, typed)
+  local naming, ticket = require("cockpit.naming"), require("cockpit.ticket")
+  if typed and vim.trim(typed) ~= "" then
+    return naming.base(project, { name = typed })
+  end
+  local p = require("cockpit.projects").get(project)
+  local key = (dir and ticket.for_dir(dir)) or (p and p.ticket and ticket.find(p.ticket))
+  if key then
+    return naming.slug(naming.slug(project) .. "-" .. ticket.slug(key), naming.MAX)
+  end
+  return naming.base(project, { dir = dir, prompt = prompt })
+end
+
+-- A free herdr name from `base` (base, base-2, base-3, …) or, without one, <project>-1, <project>-2, …
 -- Free = no live agent has it, no fork/<name>-* branch in the primary repo, and no other spawn's claim.
-function M.agent_name(project, dir, prompt)
-  local ticket = require("cockpit.ticket")
+function M.free_name(project, base)
   local p = require("cockpit.projects").get(project)
   local repo = p and p.repos[1]
-  local key = (dir and ticket.for_dir(dir)) or (p and p.ticket and ticket.find(p.ticket)) or ticket.find(prompt)
-  local base = key and ticket.slug(key)
   local _, res = M.request("agent.list", {})
   local taken = {}
   for _, a in ipairs((res or {}).agents or {}) do
@@ -393,8 +406,21 @@ function M.agent_name(project, dir, prompt)
   end
 end
 
-function M.free_name(project)
-  return M.agent_name(project)
+function M.agent_name(project, dir, prompt, typed)
+  return M.free_name(project, M.name_base(project, dir, prompt, typed))
+end
+
+-- the value of -n / --name / --name=x in claude args, if any
+local function name_arg(args)
+  for i, a in ipairs(args) do
+    if (a == "-n" or a == "--name") and args[i + 1] then
+      return args[i + 1]
+    end
+    local v = a:match("^%-%-name=(.+)$")
+    if v then
+      return v
+    end
+  end
 end
 
 -- A new tab for an agent in the project's ck/ workspace (created on first use, its first tab renamed
@@ -474,6 +500,10 @@ function M.start_in(pane_id, name, args, rec, cb, opts)
       end
       cb(serr, name)
     end
+    -- the same name as Claude's session name (what /resume and other sessions show), unless given
+    if not name_arg(args) then
+      args = vim.list_extend({ "-n", name }, args)
+    end
     -- Over the socket, agent.start returns at launch; readiness (the CLI's wait) is ours to do.
     -- Not for the launcher (interactive == false): you attach right away and see whatever Claude shows
     -- (trust dialog, resume picker, login), so waiting would only delay the attach.
@@ -500,7 +530,7 @@ end
 -- Start a Claude agent in `project`, in its own tab; cb(err, name, pane_id, tab_id).
 -- opts.dir (alias opts.cwd): the tab's cwd, default the primary dir (ui.spawn asks when a project has several).
 -- opts.args: extra claude args (appended). opts.profile: cockpit.profiles name (default "default"), recorded in
--- the registry. opts.interactive = false: no
+-- the registry. opts.name: typed agent name (else derived, see M.name_base). opts.interactive = false: no
 -- attach prompt when blocked at startup (cb still gets the name). opts.env: base pane env (COCKPIT_* win).
 -- opts.on_pane(pane_id): called as soon as the pane exists (the launcher closes it if it gives up).
 function M.spawn(project, prompt, cb, opts)
@@ -519,7 +549,8 @@ function M.spawn(project, prompt, cb, opts)
       opts.env or {},
       { COCKPIT_PROJECT = project, COCKPIT_INBOX_DIR = vim.env.COCKPIT_INBOX_DIR }
     )
-    local name = M.agent_name(project, dir, prompt)
+    local typed = opts.name or name_arg(opts.args or {}) -- `claude -n foo` through the launcher
+    local name = M.agent_name(project, dir, prompt, typed)
     local err, pane_id, tab_id = project_tab(p, env, dir, name)
     if err then
       vim.notify("cockpit: spawn failed — " .. err.message, vim.log.levels.ERROR)
@@ -569,6 +600,17 @@ end
 
 function M.interrupt(target)
   return (M.request("agent.send_keys", { target = target, keys = { "esc" } }))
+end
+
+-- Show the agent in the herdr TUI (no new client: herdr allows one direct attach per terminal)
+function M.focus(target)
+  M.request("agent.focus", { target = target }, function(err)
+    vim.notify(
+      err and ("cockpit: focus failed — " .. (err.message or err.code))
+        or ("cockpit: " .. target .. " focused in herdr"),
+      err and vim.log.levels.ERROR or nil
+    )
+  end)
 end
 
 -- tmux pane where cockpit-claude already has this agent attached (herdr allows one client per terminal)

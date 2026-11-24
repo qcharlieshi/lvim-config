@@ -251,6 +251,7 @@ function M.open()
     vim.schedule_wrap(function()
       if valid(ck.rail) then
         M.render_rail(M.rail_buf())
+        require("cockpit.inbox.convo").refresh()
       end
     end)
   )
@@ -620,6 +621,32 @@ function M.select(tid, focus, opts)
   if auto_diff and opts.open_diff then
     open_diff(tid, auto_diff)
   end
+end
+
+-- Load an agent's conversation (rail agent node) into the thread window, full column height
+function M.select_agent(node)
+  layout()
+  ck.tid = nil
+  local convo = require("cockpit.inbox.convo")
+  local buf = convo.buf(node.akey or node.terminal_id, node) -- one view per conversation, not per pane
+  common_maps(buf)
+  map(buf, "q", focus_rail, "Back to rail")
+  vim.api.nvim_win_set_buf(ck.thread, buf)
+  vim.wo[ck.thread].foldlevel = 99 -- markdown heading folds would swallow the follow-the-tail cursor
+  ck.thread_only = true
+  size_thread()
+  local wb = scratch("cockpit://conversation", "cockpit-empty")
+  set_lines(wb, { "  conversation below · r chat · <CR> on a 📮 post opens it" })
+  vim.api.nvim_win_set_buf(ck.work, wb)
+  vim.wo[ck.work].winbar = ""
+  local dir = node.agent and node.agent.cwd
+  if dir and vim.fn.isdirectory(dir) == 1 then
+    vim.api.nvim_win_call(ck.rail, function()
+      vim.cmd.tcd(vim.fn.fnameescape(dir))
+    end)
+  end
+  vim.api.nvim_set_current_win(ck.thread)
+  convo.render(buf, true) -- after focus: entering the window restores its old cursor row
 end
 
 -- `:Inbox <id>` and other entry points
@@ -1303,10 +1330,15 @@ function M.spawn(project)
   local function go(name)
     local function ask(dir)
       require("cockpit.profiles").pick(function(profile)
-        vim.ui.input({ prompt = "First prompt (optional): " }, function(text)
-          if text ~= nil then
-            herdr.spawn(name, text, nil, { dir = dir, profile = profile })
+        vim.ui.input({ prompt = "Agent name (empty = auto): " }, function(agent)
+          if agent == nil then
+            return
           end
+          vim.ui.input({ prompt = "First prompt (optional): " }, function(text)
+            if text ~= nil then
+              herdr.spawn(name, text, nil, { dir = dir, profile = profile, name = agent })
+            end
+          end)
         end)
       end)
     end
@@ -1358,8 +1390,10 @@ function M.pick_agent()
     if not a then
       return
     end
-    vim.ui.select({ "attach", "interrupt", "kill", "prompt" }, { prompt = a.target }, function(action)
-      if action == "attach" then
+    vim.ui.select({ "focus", "attach", "interrupt", "kill", "prompt" }, { prompt = a.target }, function(action)
+      if action == "focus" then
+        herdr.focus(a.target)
+      elseif action == "attach" then
         herdr.attach(a.target)
       elseif action == "interrupt" then
         herdr.interrupt(a.target)
@@ -1385,6 +1419,7 @@ function M.refresh_rail()
 end
 
 function M.refresh()
+  require("cockpit.inbox.convo").refresh()
   for buf, v in pairs(views) do
     if not vim.api.nvim_buf_is_valid(buf) then
       views[buf] = nil

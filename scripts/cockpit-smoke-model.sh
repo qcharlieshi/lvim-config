@@ -181,11 +181,11 @@ assert(registry.all("lilt").S1, "earlier session record lost") -- stays for Past
 assert(#calls == 0, "renamed on noise: " .. vim.inspect(calls)) -- RF3: GPT-5 is not a ticket
 cache["lilt-9"].title = "ENG-35131 Slack assist POC"
 h.learn()
-assert(vim.tbl_contains(calls, "agent.rename eng-35131") and vim.tbl_contains(calls, "tab.rename eng-35131"), vim.inspect(calls))
+assert(vim.tbl_contains(calls, "agent.rename lilt-eng-35131") and vim.tbl_contains(calls, "tab.rename lilt-eng-35131"), vim.inspect(calls))
 rec = registry.by_terminal("lilt", "tL")
-assert(rec.name == "eng-35131" and rec.renamed and rec.session == "S2", vim.inspect(rec))
+assert(rec.name == "lilt-eng-35131" and rec.renamed and rec.session == "S2", vim.inspect(rec))
 calls = {}
-cache["lilt-9"].name = "eng-35131"
+cache["lilt-9"].name = "lilt-eng-35131"
 h.learn()
 assert(#calls == 0, "renamed twice: " .. vim.inspect(calls))
 assert(registry.by_terminal("lilt", "tM").name == "mine") -- hand-set names are never touched
@@ -197,14 +197,14 @@ cache.v = { name = "lilt-5", target = "lilt-5", project = "lilt", terminal_id = 
   title = "ENG-777 views", status = "idle" }
 h.learn()
 local newest = registry.find_session("V1")
-assert(newest and newest.name == "eng-777" and newest.project == "q21" and newest.moved, vim.inspect(newest))
+assert(newest and newest.name == "lilt-eng-777" and newest.project == "q21" and newest.moved, vim.inspect(newest))
 -- I2: X / m on an "earlier session" row never write a registry record (the synthetic rec is display-only)
 local rail, store = require("cockpit.inbox.rail"), require("cockpit.inbox.store")
 vim.fn.mkdir(store.path("threads"), "p")
 store.append(store.thread_file("old21"), { kind = "message", text = "x", ts = 1, session = { herdr = { terminal_id = "tL" } } })
 local before = vim.deepcopy(registry.by_terminal("lilt", "tL"))
-local old = { kind = "agent", akey = "old:tL", terminal_id = "tL", live = false, name = "eng-35131 · earlier session",
-  rec = { name = "eng-35131 · earlier session", terminal_id = "tL", project = "lilt" } }
+local old = { kind = "agent", akey = "old:tL", terminal_id = "tL", live = false, name = "lilt-eng-35131 · earlier session",
+  rec = { name = "lilt-eng-35131 · earlier session", terminal_id = "tL", project = "lilt" } }
 vim.fn.confirm = function() return 1 end
 rail.kill_agent(old)
 assert(store.thread("old21").archived, "earlier session's thread not archived")

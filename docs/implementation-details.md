@@ -68,16 +68,20 @@ Agent review inbox + agent runtime front end. Agents (Claude Code) post document
 | `scripts/cockpit-spawn.lua` | Headless nvim entry used by `cockpit-claude` to resolve the project and spawn |
 | `scripts/cockpit-smoke-herdr.sh` | End-to-end smoke test against a scratch herdr session and temp dirs (starts real Claude agents: spends tokens) |
 | `scripts/test` | Unit + contract tests, see **Tests** below |
-| `lua/cockpit/herdr.lua` | The only nvim ↔ herdr code: NDJSON socket client, live agent cache, spawn/kill/interrupt/attach/prompt. Always uses explicit target ids, never `--current` (herdr #2900) |
-| `lua/cockpit/projects.lua` | Named repo sets; `for_dir()` maps a directory to a project, creating one if needed |
-| `lua/cockpit/registry.lua` | Per-project `agents.jsonl` |
+| `lua/cockpit/herdr.lua` | The only nvim ↔ herdr code: NDJSON socket client, live agent cache, spawn/kill/interrupt/attach/prompt. Always uses explicit target ids, never `--current` (herdr #2900). Layout: one `ck/<project>` workspace per project (first tab renamed `shell`, left for you), **one tab per agent** starting in its dir; kill closes the agent's tab |
+| `lua/cockpit/projects.lua` | User-defined projects = sets of dirs (repos or worktrees), optional `ticket`. `containing()`: the project with the longest dir containing a path; `for_dir()` also creates a one-dir project when none does. `:CockpitProject new` (dirs / new worktree / existing worktrees), `add-worktree` |
+| `lua/cockpit/registry.lua` | Per-project `agents.jsonl`, keyed by Claude **session**: an agent is one conversation, not the pane it runs in. Each reconcile (`herdr.learn`) appends a record when a pane's session changes (`/clear`, restart), so the earlier conversation shows under Past with its own threads and transcript |
+| `lua/cockpit/ticket.lua` | Ticket keys for names: only configured prefixes count (`vim.g.cockpit_ticket_prefixes`, default `{ "ENG" }`), so `GPT-5` / `sha-256` never do. `for_dir()`: worktree branch, else `-<3+ digits>` in the dir name |
+| `lua/cockpit/transcript.lua` | Claude transcript reader (`~/.claude/projects/*/<sid>.jsonl`): user/assistant text, one line per tool call, slash commands; skips subagent (sidechain) and meta lines. Incremental: re-reads only appended bytes |
 | `lua/cockpit/sessions.lua` | Read-only discovery of Claude sessions you started yourself in tmux (not run by herdr) |
 | `lua/cockpit/forks.lua` | `continue` / `worktree` forks of an agent's session (`--resume <id> --fork-session`) |
+| `lua/cockpit/naming.lua` | Agent names `<project>-<label>` (= herdr name = tab label = `claude -n`). `herdr.name_base`: typed name › the ticket of the agent's dir or the project's `ticket` (`lilt-eng-35131`) › `naming.base` (ticket in the prompt, meaningful branch, prompt words). `herdr.free_name` falls back to `<project>-<n>` and adds `-2`, `-3`. A `<project>-<n>` agent is renamed once (agent + tab) when its session title names a ticket |
 | `lua/cockpit/profiles.lua` | Launch profiles picked on spawn/fork (model, effort, plugins, `--settings`…). Built-in `default` adds no flags; more in `~/.cockpit/profiles.json`. The picker is skipped while `default` is the only one; the choice is recorded as `profile` in `agents.jsonl` |
 | `lua/cockpit/inbox/store.lua` | Reads and writes the JSONL shared with the Python CLI; derives thread state. Events only, no transports |
 | `lua/cockpit/inbox/delivery.lua` | Reply delivery + outbox: herdr `agent.prompt` or tmux `send-keys`, retried until the agent has it |
 | `lua/cockpit/inbox/ui.lua` | The tab: rail (left) · workspace (deliverable) · thread (bottom); composer + notes float |
 | `lua/cockpit/inbox/rail.lua`, `tree.lua` | Rail rendering; `tree.lua` is the pure project → agent → fork → thread model |
+| `lua/cockpit/inbox/convo.lua` | Agent conversation view (rail `<CR>` on any agent, live or dead): its transcript(s) with its inbox posts and your replies interleaved by time; `r` chat composer sends through herdr `agent.prompt`. Refreshed on the cockpit's 3 s tick, keyed on transcript size/mtime |
 | `lua/cockpit/inbox/review.lua` | Diff deliverables in CodeDiff, rebuilt from the sent patch (never touches the agent's worktree) |
 
 ### File system (`~/.cockpit/`)
@@ -101,10 +105,10 @@ Logs are append-only JSONL and are never rewritten. All state (status, drafts, r
 │   └── feedback.jsonl          steering log: one line per verdict / edit / note sent
 ├── projects/                   $COCKPIT_PROJECTS_DIR
 │   └── <name>/
-│       ├── project.json        {name, repos[], created}; repos[0] is primary (spawn cwd), rest are --add-dir
+│       ├── project.json        {name, repos[] (any dirs), ticket?, created}; repos[0] is primary (workspace cwd); an agent's tab starts in one dir, the others are --add-dir
 │       ├── repos/<basename>    symlink → repo (collision → <basename>-2)
 │       ├── threads/<tid>.jsonl symlink → inbox thread (browsing only; nothing reads through it)
-│       ├── agents.jsonl        {terminal_id, name, project, session, ts, dead?}; forks add fork ("continue"|"worktree"), parent_terminal, parent_name, worktrees[{repo, path, branch, base}]; latest line per terminal_id wins
+│       ├── agents.jsonl        {session, terminal_id, name, project, dir, tab_id, pane_id, profile, ts, dead?, moved?, renamed?}; forks add fork ("continue"|"worktree"), parent_session, parent_terminal, parent_name, worktrees[{repo, path, branch, base}]; latest line per session wins (pre-session lines: per terminal_id). `m` (move) appends to the target project's file; across projects the newest record wins
 │       └── names/<name>        O_EXCL name claims so two spawns can't take the same name
 ├── attached/<terminal_id>      $COCKPIT_ATTACH_DIR: tmux pane id where cockpit-claude has this herdr agent attached
 └── status/<session_id>.json    $COCKPIT_STATUS_DIR: status line input JSON saved by claude-statusline.sh (nix-darwin dotfiles)
@@ -114,7 +118,7 @@ Logs are append-only JSONL and are never rewritten. All state (status, drafts, r
 
 | kind | Writer | Fields |
 | --- | --- | --- |
-| `message` | agent | `text`, `attachments[]`, `questions[{id,text,options}]`, `gate`, `stage`, `pipeline`, `stages`, `session{agent,tmux_pane,herdr{pane_id,workspace_id,terminal_id,name},cwd,pid}`; first message also has `title`, `project` |
+| `message` | agent | `text`, `attachments[]`, `questions[{id,text,options}]`, `gate`, `stage`, `pipeline`, `stages`, `session{agent,tmux_pane,herdr{pane_id,workspace_id,terminal_id,name,session_id},session_id,cwd,pid}`; first message also has `title`, `project` |
 | `annotation` | you | `sha256`, `attachment`, `line_start`, `line_end`, `quote`, `loc`, `label`, `blocking`, `text` |
 | `annotation_deleted` | you | `target` |
 | `reply` | you | `verdict` (approve · approve_with_notes · changes_requested · reject · none), `text`, `answers[]`, `annotations[]` (the drafts it sends), `edits[{attachment, sha256, path, patch_sha256}]` (the patch body is in `blobs/`; older replies carry it inline as `patch`), `stage`, `round` |
@@ -134,7 +138,7 @@ Logs are append-only JSONL and are never rewritten. All state (status, drafts, r
 - `round`: count of messages per `stage`.
 - `deliverables`: the latest message that has attachments.
 - `unacked`: replies the agent hasn't acked, each with `attempts` (its `delivery` events) and `delivered` (one attempt was `ok`). `undelivered`: the unacked replies that never reached the agent. Replies from before the outbox have no attempts, so they show as undelivered but are never re-sent automatically.
-- `owner`: the first message's `session`. Project is matched by the `COCKPIT_PROJECT` env var, else the git common dir's basename (so worktrees share their main repo's project).
+- `owner`: the first message's `session`, merged with any later `owner` event (`backfill-sessions` tags legacy threads with `session_id`). The rail attaches a thread to the agent with that Claude session id (`session.session_id` or `session.herdr.session_id`); a thread with none goes to its pane's "· earlier session" row under Past, never to whatever runs in that pane now. Project: `COCKPIT_PROJECT`, else the project whose dir contains the cwd (longest wins), else the git common dir's basename.
 
 ### Flows
 
@@ -155,7 +159,7 @@ Logs are append-only JSONL and are never rewritten. All state (status, drafts, r
   - Otherwise, if the last line of the agent's message ends in `?` (or the session is already replying to a thread), it posts that message itself.
 - **Reply delivery** (`delivery.lua`; `store.deliver` is a shim for `ui.send`). One prompt covers every undelivered reply of a thread. First match wins:
   - The agent is blocked in `wait` (fresh `waiting/<tid>`): it reads the reply itself (logged as `via = "wait"`).
-  - The thread has a herdr session: `agent.prompt`, joined on `terminal_id`. Never falls back to tmux for these.
+  - The thread has a herdr session: `agent.prompt`, joined on `terminal_id`, but only while that pane still runs the thread's Claude session (after a `/clear` the reply waits). Never falls back to tmux for these.
   - Otherwise, a one-line `tmux send-keys` to `session.tmux_pane`, but only while that pane hosts a live Claude session (`sessions.list()`), with the same `session_id` when the thread records one. Pane ids restart with the tmux server, so a bare pane id could be anyone's shell. The agent then runs `read <tid> --new`, which also appends the `ack`.
   - The thread → agent join is `delivery.resolve(t)`, replaceable (e.g. to join on the Claude session id). Transports are `delivery.transports.{herdr,tmux}`.
 - **Outbox**: every attempt appends a `delivery` event. `delivery.flush()` retries undelivered replies of non-archived threads on `CockpitAgents` (agent cache changed), on inbox changes, and every 60 s (tmux panes emit no events):
