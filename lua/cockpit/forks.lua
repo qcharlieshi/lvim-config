@@ -11,7 +11,9 @@ local function git(dir, ...)
 end
 
 local function preamble(parent)
-  return ("You are a fork of %s. Open new inbox threads for your work; don't post to your parent's threads."):format(parent.name)
+  return ("You are a fork of %s. Open new inbox threads for your work; don't post to your parent's threads."):format(
+    parent.name
+  )
 end
 
 -- A hand-started agent has no name (its cache key is the pane id): display it by target, and
@@ -29,7 +31,7 @@ local function session_of(parent)
   local _, got = require("cockpit.herdr").request("agent.get", { target = parent.target or parent.name })
   local s = got and got.agent and got.agent.agent_session and got.agent.agent_session.value
   if not s and parent.project then
-    local rec = require("cockpit.registry").all(parent.project)[parent.terminal_id]
+    local rec = require("cockpit.registry").by_terminal(parent.project, parent.terminal_id)
     s = rec and rec.session
   end
   return s
@@ -85,7 +87,8 @@ local function start(parent, session, cwd, add_dirs, system, prompt, rec, cb, un
   for _, d in ipairs(add_dirs) do
     vim.list_extend(args, { "--add-dir", d })
   end
-  rec = vim.tbl_extend("force", rec, { project = project, parent_terminal = parent.terminal_id, parent_name = parent.name })
+  rec =
+    vim.tbl_extend("force", rec, { project = project, parent_terminal = parent.terminal_id, parent_name = parent.name })
   herdr.start_in(pane_id, herdr.free_name(project), args, rec, function(serr, name)
     if serr and serr.code ~= "agent_not_ready" then
       herdr.request("pane.close", { pane_id = pane_id })
@@ -170,9 +173,19 @@ function M.worktree(parent, prompt, cb)
     table.concat(paths, ", "),
     branch
   ) .. preamble(parent)
-  start(parent, session, paths[1], vim.list_slice(paths, 2), system, prompt, { fork = "worktree", worktrees = wts }, cb, function()
-    rollback(wts)
-  end)
+  start(
+    parent,
+    session,
+    paths[1],
+    vim.list_slice(paths, 2),
+    system,
+    prompt,
+    { fork = "worktree", worktrees = wts },
+    cb,
+    function()
+      rollback(wts)
+    end
+  )
 end
 
 -- After a worktree fork is killed: drop clean, commit-less worktrees + branch silently; otherwise

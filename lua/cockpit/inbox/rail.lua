@@ -166,7 +166,8 @@ local function agent_card(node)
   local a, s = node.agent or {}, (node.agent and node.agent.session) or {}
   local pad = { string.rep("  ", node.depth + 1) }
   local glyph = node.fork and { "⑂ ", "Special" } or { g[1] .. " ", g[2] }
-  local suffix = (node.fork == "worktree" and " wt" or "") .. (node.orphan_of and (" (from " .. node.orphan_of .. ")") or "")
+  local suffix = (node.fork == "worktree" and " wt" or "")
+    .. (node.orphan_of and (" (from " .. node.orphan_of .. ")") or "")
   local right = { { STATUS_WORD[node.status] or node.status or "?", g[2] } }
   if node.recent and node.recent > 0 or s.ts then
     right[#right + 1] = { " · " .. util.ago(math.max(node.recent or 0, s.ts or 0)), "Comment" }
@@ -217,7 +218,8 @@ end
 local function agent_parts(node)
   local g = util.AGENT[node.status] or util.AGENT.unknown
   local left = { indent(node), node.fork and { "⑂ ", "Special" } or { g[1] .. " ", g[2] } }
-  local suffix = (node.fork == "worktree" and " wt" or "") .. (node.orphan_of and (" (from " .. node.orphan_of .. ")") or "")
+  local suffix = (node.fork == "worktree" and " wt" or "")
+    .. (node.orphan_of and (" (from " .. node.orphan_of .. ")") or "")
   local right = {}
   if node.fork then
     right[1] = { g[1], g[2] }
@@ -579,7 +581,7 @@ function M.kill_agent(node)
   local name = node.name or (a and a.target) or tid
   local project = (node.rec and node.rec.project) or (a and a.project)
   local recs = project and registry.all(project) or {}
-  local rec = recs[tid]
+  local rec = project and registry.by_terminal(project, tid)
   local owner_tid = require("cockpit.inbox.tree").owner_tid
   local owned = vim.tbl_filter(function(t)
     return not t.archived and owner_tid(t) == tid
@@ -652,8 +654,10 @@ function M.cleanup()
   -- an empty cache only means "dead" once herdr has answered; otherwise every herdr thread would look dead
   if not herdr.reconciled() then
     herdr.reconcile()
-    return vim.notify("cockpit: herdr not reachable (or not checked yet) — can't tell which agents are dead; try again",
-      vim.log.levels.WARN)
+    return vim.notify(
+      "cockpit: herdr not reachable (or not checked yet) — can't tell which agents are dead; try again",
+      vim.log.levels.WARN
+    )
   end
   local panes
   local function pane_alive(p)
@@ -744,8 +748,10 @@ function M.attach(buf)
         return vim.notify("cockpit: no " .. (live and "live " or "") .. "agent on this row", vim.log.levels.WARN)
       end
       if herdr_only and is_session(a) then
-        return vim.notify("cockpit: " .. a.name .. " runs in tmux pane " .. a.agent.pane_id .. ", not herdr — gt to go there",
-          vim.log.levels.WARN)
+        return vim.notify(
+          "cockpit: " .. a.name .. " runs in tmux pane " .. a.agent.pane_id .. ", not herdr — gt to go there",
+          vim.log.levels.WARN
+        )
       end
       fn(a)
     end
@@ -777,18 +783,28 @@ function M.attach(buf)
   end
   map(buf, "f", with_agent(fork("continue"), true, true), "Fork agent (continue)")
   map(buf, "F", with_agent(fork("worktree"), true, true), "Fork agent (worktree)")
-  map(buf, "i", with_agent(function(a)
-    if is_session(a) then
-      return sessions.interrupt(a.agent.pane_id)
-    end
-    herdr.interrupt(a.agent.target)
-  end, true), "Interrupt agent")
-  map(buf, "gt", with_agent(function(a)
-    if is_session(a) then
-      return sessions.attach(a.agent.pane_id)
-    end
-    herdr.attach(a.agent.target)
-  end, true), "Attach to agent")
+  map(
+    buf,
+    "i",
+    with_agent(function(a)
+      if is_session(a) then
+        return sessions.interrupt(a.agent.pane_id)
+      end
+      herdr.interrupt(a.agent.target)
+    end, true),
+    "Interrupt agent"
+  )
+  map(
+    buf,
+    "gt",
+    with_agent(function(a)
+      if is_session(a) then
+        return sessions.attach(a.agent.pane_id)
+      end
+      herdr.attach(a.agent.target)
+    end, true),
+    "Attach to agent"
+  )
   map(buf, "gv", function()
     ui().flip_rail()
   end, "Rail: left column / top strip")
@@ -802,12 +818,22 @@ function M.attach(buf)
       end
     end,
   })
-  map(buf, "a", with_thread(function(t)
-    store.append(store.thread_file(t.id), { kind = "state", archived = not t.archived })
-  end), "Archive / unarchive")
-  map(buf, "u", with_thread(function(t)
-    store.append(store.thread_file(t.id), { kind = "state", read = t.status == "unread" })
-  end), "Toggle unread")
+  map(
+    buf,
+    "a",
+    with_thread(function(t)
+      store.append(store.thread_file(t.id), { kind = "state", archived = not t.archived })
+    end),
+    "Archive / unarchive"
+  )
+  map(
+    buf,
+    "u",
+    with_thread(function(t)
+      store.append(store.thread_file(t.id), { kind = "state", read = t.status == "unread" })
+    end),
+    "Toggle unread"
+  )
   map(buf, "g.", function()
     show_archived = not show_archived
     M.render(buf)
@@ -828,7 +854,11 @@ function M.attach(buf)
     ui().close()
   end, "Close cockpit")
   map(buf, "?", function()
-    vim.lsp.util.open_floating_preview(HELP, "", { border = "rounded", focus_id = "cockpit_rail_help", title = " rail keys " })
+    vim.lsp.util.open_floating_preview(
+      HELP,
+      "",
+      { border = "rounded", focus_id = "cockpit_rail_help", title = " rail keys " }
+    )
   end, "Rail keys")
   M.render(buf)
 end

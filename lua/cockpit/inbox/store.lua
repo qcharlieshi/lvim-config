@@ -62,6 +62,12 @@ function M.is_blocking(label)
   return not NON_BLOCKING[label]
 end
 
+-- the Claude session that owns a thread (agent identity), or nil for an unattributed legacy thread
+function M.owner_session(t)
+  local o = t and t.owner
+  return o and (o.session_id or (o.herdr and o.herdr.session_id)) or nil
+end
+
 function M.thread(id)
   local events = read_jsonl(M.thread_file(id))
   if #events == 0 then
@@ -84,6 +90,9 @@ function M.thread(id)
       end
       t.messages[#t.messages + 1] = e
       t.last_ts = e.ts
+    elseif e.kind == "owner" then
+      -- backfill-sessions: names the Claude session that posted a legacy thread (keeps its herdr seat)
+      t.owner = vim.tbl_extend("force", t.owner or {}, e.session or {})
     elseif e.kind == "reply" then
       t.messages[#t.messages + 1] = e
       t.last_ts = e.ts

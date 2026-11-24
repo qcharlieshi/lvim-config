@@ -173,15 +173,39 @@ def herdr_identity():
         return None
     ident = {k: pane.get(k) for k in ("pane_id", "workspace_id", "terminal_id")}
     agents = (herdr_call("agent.list", {}) or {}).get("agents") or []
-    name = next((a.get("name") for a in agents if a.get("pane_id") == pane_id and a.get("name")), None)
-    return ident | ({"name": name} if name else {})
+    mine = next((a for a in agents if a.get("pane_id") == pane_id), {})
+    sid = (mine.get("agent_session") or {}).get("value")
+    return ident | ({"name": mine["name"]} if mine.get("name") else {}) | ({"session_id": sid} if sid else {})
+
+
+CLAUDE_DIR = Path(os.environ.get("COCKPIT_CLAUDE_DIR", "~/.claude")).expanduser()
+
+
+def claude_session_id():
+    """The session of the nearest Claude ancestor. The parent is often a Bash-tool shell, not Claude, so walk up
+    to the first pid with a ~/.claude/sessions/<pid>.json."""
+    pid = os.getppid()
+    for _ in range(8):
+        try:
+            return json.loads((CLAUDE_DIR / "sessions" / f"{pid}.json").read_text())["sessionId"]
+        except (OSError, ValueError, KeyError):
+            pass
+        try:
+            pid = int(subprocess.run(["ps", "-o", "ppid=", "-p", str(pid)], capture_output=True, text=True).stdout)
+        except ValueError:
+            return None
+        if pid <= 1:
+            return None
+    return None
 
 
 def session():
+    herdr = herdr_identity()
     return {
         "agent": os.environ.get("COCKPIT_AGENT") or "claude",
         "tmux_pane": os.environ.get("TMUX_PANE"),
-        "herdr": herdr_identity(),
+        "herdr": herdr,
+        "session_id": (herdr or {}).get("session_id") or claude_session_id(),
         "cwd": os.getcwd(),
         "pid": os.getppid(),
     }

@@ -368,8 +368,9 @@ assert(not err, vim.inspect(err))
 local tid1 = h.agents()[name1].terminal_id
 local all = registry.all("smoke")
 assert(vim.tbl_count(all) == 1, "registry: " .. vim.inspect(all))
-assert(all[tid1] and all[tid1].name == name1, "no record for " .. tid1)
-assert(type(all[tid1].session) == "string" and all[tid1].session ~= "", "no session: " .. vim.inspect(all[tid1]))
+local rec1 = registry.by_terminal("smoke", tid1)
+assert(rec1 and rec1.name == name1, "no record for " .. tid1)
+assert(type(rec1.session) == "string" and rec1.session ~= "", "no session: " .. vim.inspect(rec1))
 assert(registry.names("smoke")[name1], "names() missing " .. name1)
 assert(h.kill(name1) == nil, "kill errored")
 assert(vim.wait(10000, function() return h.agents()[name1] == nil end, 100), "still cached")
@@ -493,7 +494,7 @@ assert(rail.row(buf, "a:" .. tid) == vim.api.nvim_win_get_cursor(win)[1], "curso
 vim.fn.confirm = function() return 1 end
 rail.kill_agent(rail.node(buf, ar))
 assert(store.thread(sid).archived, "s11 not archived")
-assert(registry.all("smoke")[tid].dead == true, "registry not dead: " .. vim.inspect(registry.all("smoke")[tid]))
+assert(registry.by_terminal("smoke", tid).dead == true, "registry not dead: " .. vim.inspect(registry.by_terminal("smoke", tid)))
 assert(vim.wait(10000, function() return h.by_terminal(tid) == nil end, 100), "agent still live")
 -- 5. X on a past (dead) agent archives its threads and never calls herdr.kill
 local ev = vim.json.encode({ kind = "message", id = "m1", ts = os.time(), title = "s11b", project = "smoke", text = "x",
@@ -547,12 +548,12 @@ local perr = await(function(cb)
   h.request("agent.prompt", { target = pname, text = "Reply with only: hi", wait = { timeout_ms = 180000 } }, cb)
 end, 190000)
 assert(not perr, vim.inspect(perr))
-local psession = registry.all("smoke")[parent.terminal_id].session
+local psession = registry.by_terminal("smoke", parent.terminal_id).session
 -- 1. continue fork: live child in the parent's workspace, own session, linked to the parent
 local cerr, cname = await(function(cb) forks.continue(parent, nil, cb) end)
 assert(not cerr, vim.inspect(cerr))
 local child = live(cname)
-local crec = registry.all("smoke")[child.terminal_id]
+local crec = registry.by_terminal("smoke", child.terminal_id)
 assert(crec, "no registry rec for " .. cname .. ": " .. vim.inspect(registry.all("smoke")) .. vim.inspect(child))
 assert(crec.fork == "continue" and crec.parent_terminal == parent.terminal_id and crec.parent_name == pname, vim.inspect(crec))
 assert(type(crec.session) == "string" and crec.session ~= psession, "fork session " .. tostring(crec.session) .. " vs parent " .. tostring(psession))
@@ -573,7 +574,7 @@ assert(not werr, vim.inspect(werr))
 assert(has_branch(branch), branch .. " missing")
 assert(vim.fn.isdirectory(wt) == 1, wt .. " missing")
 local wa = live(wname)
-local wrec = registry.all("smoke")[wa.terminal_id]
+local wrec = registry.by_terminal("smoke", wa.terminal_id)
 assert(wrec.fork == "worktree" and #wrec.worktrees == 2 and wrec.worktrees[1].path == wt, vim.inspect(wrec))
 assert(type(wrec.session) == "string" and wrec.session ~= psession, "worktree fork session " .. tostring(wrec.session))
 assert(vim.fn.resolve(wa.cwd) == vim.fn.resolve(wt), "fork cwd " .. tostring(wa.cwd))
@@ -1041,7 +1042,7 @@ h.start_in("p18", "s18-9", {}, { project = "s18" }, function(err, name) got = { 
 assert(vim.wait(5000, function() return got ~= nil end), "start_in never called back")
 assert(got.err == nil and got.name == "s18-9", vim.inspect(got))
 assert(not vim.tbl_contains(calls, "agent.wait"), "non-interactive start waited for readiness: " .. table.concat(calls, ","))
-assert(registry.all("s18").term_s18, "not registered at launch")
+assert(registry.by_terminal("s18", "term_s18"), "not registered at launch")
 print("T18 OK")
 LUA
 NVIM_CFG=$NVIM_CFG nlua "$T/t18.lua" 2>&1 | tee "$T/t18.out" | grep -q "T18 OK" || { cat "$T/t18.out"; fail "section 18"; }

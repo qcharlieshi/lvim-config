@@ -52,4 +52,40 @@ assert e["project"] == "slack-poc", e["project"]
   ok "ticket keys (ENG only), longest-containing project, project.ticket persisted, post uses containment"
 fi
 
+# --- 20: session identity — registry keyed by session, owner events, CLI records the Claude session ------
+if want 20; then
+  echo "20: session identity"
+  cat >"$T/t20.lua" <<'LUA'
+local registry, store = require("cockpit.registry"), require("cockpit.inbox.store")
+registry.append("p", { name = "lilt-9", project = "p", terminal_id = "tX" }) -- legacy: no session
+registry.append("p", { name = "lilt-9", project = "p", terminal_id = "tX", session = "S2" })
+registry.append("p", { name = "other", project = "p", terminal_id = "tY" }) -- legacy, never learned
+local all = registry.all("p")
+assert(all.S2 and not all.tX, vim.inspect(all))
+assert(all.tY and all.tY.name == "other", vim.inspect(all))
+assert(registry.by_terminal("p", "tX").session == "S2")
+assert(registry.key({ terminal_id = "t", session = "s" }) == "s" and registry.key({ terminal_id = "t" }) == "t")
+-- an owner event overrides the first message's session
+vim.fn.mkdir(store.path("threads"), "p")
+store.append(store.thread_file("o1"), { kind = "message", text = "x", session = { pid = 1 } })
+assert(store.owner_session(store.thread("o1")) == nil)
+store.append(store.thread_file("o1"), { kind = "owner", session = { session_id = "S1" } })
+assert(store.owner_session(store.thread("o1")) == "S1", vim.inspect(store.thread("o1").owner))
+store.append(store.thread_file("o2"), { kind = "message", text = "x", session = { herdr = { session_id = "H1" } } })
+assert(store.owner_session(store.thread("o2")) == "H1")
+print("T20 OK")
+LUA
+  nlua "$T/t20.lua" 2>&1 | tee "$T/t20.out" | grep -q "T20 OK" || { cat "$T/t20.out"; fail "section 20 (lua)"; }
+  # Review Focus 2: posted from the Bash tool, python's parent is a shell, not Claude: walk up to the Claude pid
+  mkdir -p "$COCKPIT_CLAUDE_DIR/sessions"
+  bash -c 'echo "{\"pid\": $$, \"sessionId\": \"sess-fake\"}" >"$COCKPIT_CLAUDE_DIR/sessions/$$.json"
+    bash -c "cd \"$1\" && python3 \"$2\" post --title s20 --text x >/dev/null"' _ "$T" "$CLI"
+  head -1 "$(thread_file s20)" | python3 -c '
+import sys, json
+e = json.loads(sys.stdin.readline())
+assert e["session"]["session_id"] == "sess-fake", e["session"]
+' || fail "section 20 (CLI session_id)"
+  ok "registry keyed by session (legacy superseded), owner events win, CLI finds the Claude session via ancestors"
+fi
+
 echo "model smoke: all requested sections passed"

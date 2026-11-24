@@ -58,7 +58,9 @@ local function transcript(path)
           info.model = info.model or m.model
           if not info.tokens and m.usage then
             local u = m.usage
-            info.tokens = (u.input_tokens or 0) + (u.cache_read_input_tokens or 0) + (u.cache_creation_input_tokens or 0)
+            info.tokens = (u.input_tokens or 0)
+              + (u.cache_read_input_tokens or 0)
+              + (u.cache_creation_input_tokens or 0)
           end
           if not info.text then
             for j = #(m.content or {}), 1, -1 do

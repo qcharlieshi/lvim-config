@@ -168,7 +168,9 @@ local function apply(agents)
       status = a.agent_status,
       pane_id = a.pane_id,
       workspace_id = a.workspace_id,
+      tab_id = a.tab_id,
       terminal_id = a.terminal_id,
+      session_id = a.agent_session and a.agent_session.value or nil,
       cwd = a.cwd,
       title = a.terminal_title_stripped or a.terminal_title,
     }
@@ -230,7 +232,9 @@ local function subscribe()
     local subs = vim.tbl_map(function(t)
       return { type = t }
     end, EVENTS)
-    pipe:write(vim.json.encode({ id = "cksub", method = "events.subscribe", params = { subscriptions = subs } }) .. "\n")
+    pipe:write(
+      vim.json.encode({ id = "cksub", method = "events.subscribe", params = { subscriptions = subs } }) .. "\n"
+    )
     local buf = ""
     pipe:read_start(function(rerr, chunk)
       if rerr or not chunk then
@@ -326,7 +330,11 @@ local function free_name(project)
   while true do
     local cand = project .. "-" .. n
     if not taken[cand] then
-      local out = repo and vim.system({ "git", "-C", repo, "branch", "--list", "fork/" .. cand .. "-*" }, { text = true }):wait().stdout or ""
+      local out = repo
+          and vim
+            .system({ "git", "-C", repo, "branch", "--list", "fork/" .. cand .. "-*" }, { text = true })
+            :wait().stdout
+        or ""
       if vim.trim(out) == "" and claim(project, cand) then
         return cand
       end
@@ -385,22 +393,31 @@ function M.start_in(pane_id, name, args, rec, cb, opts)
         if a and a.terminal_id then
           if serr and serr.code == "timeout" then
             -- a lost reply, not a failed start: the agent exists, so judge it by its status
-            serr = a.agent_status == "blocked" and { code = "agent_not_ready", message = name .. " is blocked during startup" } or nil
+            serr = a.agent_status == "blocked"
+                and { code = "agent_not_ready", message = name .. " is blocked during startup" }
+              or nil
           end
-          require("cockpit.registry").append(rec.project, vim.tbl_extend("force", rec, {
-            name = name,
-            terminal_id = a.terminal_id,
-            session = a.agent_session and a.agent_session.value or nil,
-          }))
+          require("cockpit.registry").append(
+            rec.project,
+            vim.tbl_extend("force", rec, {
+              name = name,
+              terminal_id = a.terminal_id,
+              session = a.agent_session and a.agent_session.value or nil,
+            })
+          )
         end
       end
       M.reconcile()
       if serr and serr.code == "agent_not_ready" and interactive then
-        vim.ui.select({ "Attach now", "Later" }, { prompt = name .. " is blocked at startup (likely folder trust)" }, function(choice)
-          if choice == "Attach now" then
-            M.attach(name)
+        vim.ui.select(
+          { "Attach now", "Later" },
+          { prompt = name .. " is blocked at startup (likely folder trust)" },
+          function(choice)
+            if choice == "Attach now" then
+              M.attach(name)
+            end
           end
-        end)
+        )
       elseif serr and serr.code == "agent_not_ready" then
         vim.notify("cockpit: " .. name .. " is blocked at startup", vim.log.levels.WARN)
       elseif serr then
@@ -413,19 +430,23 @@ function M.start_in(pane_id, name, args, rec, cb, opts)
     -- Over the socket, agent.start returns at launch; readiness (the CLI's wait) is ours to do.
     -- Not for the launcher (interactive == false): you attach right away and see whatever Claude shows
     -- (trust dialog, resume picker, login), so waiting would only delay the attach.
-    M.request("agent.start", { name = name, kind = "claude", pane_id = pane_id, args = args, timeout_ms = 60000 }, function(serr)
-      if serr or not interactive then
-        return started(serr)
-      end
-      local wait = { target = name, ["until"] = { "idle", "blocked" }, timeout_ms = 60000 }
-      M.request("agent.wait", wait, function(werr, res)
-        local status = res and res.agent and res.agent.agent_status
-        if not werr and status == "blocked" then
-          werr = { code = "agent_not_ready", message = name .. " is blocked during startup" }
+    M.request(
+      "agent.start",
+      { name = name, kind = "claude", pane_id = pane_id, args = args, timeout_ms = 60000 },
+      function(serr)
+        if serr or not interactive then
+          return started(serr)
         end
-        started(werr)
-      end, { timeout_ms = 75000 })
-    end)
+        local wait = { target = name, ["until"] = { "idle", "blocked" }, timeout_ms = 60000 }
+        M.request("agent.wait", wait, function(werr, res)
+          local status = res and res.agent and res.agent.agent_status
+          if not werr and status == "blocked" then
+            werr = { code = "agent_not_ready", message = name .. " is blocked during startup" }
+          end
+          started(werr)
+        end, { timeout_ms = 75000 })
+      end
+    )
   end, 1500)
 end
 
@@ -443,7 +464,11 @@ function M.spawn(project, prompt, cb, opts)
   if not p then
     return cb({ code = "no_project", message = "no project " .. project })
   end
-  local env = vim.tbl_extend("force", opts.env or {}, { COCKPIT_PROJECT = project, COCKPIT_INBOX_DIR = vim.env.COCKPIT_INBOX_DIR })
+  local env = vim.tbl_extend(
+    "force",
+    opts.env or {},
+    { COCKPIT_PROJECT = project, COCKPIT_INBOX_DIR = vim.env.COCKPIT_INBOX_DIR }
+  )
   local err, pane_id = project_pane(p, env, opts.cwd)
   if err then
     vim.notify("cockpit: spawn failed — " .. err.message, vim.log.levels.ERROR)

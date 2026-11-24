@@ -245,11 +245,15 @@ end
 function M.open()
   require("cockpit.herdr").watch(true)
   session_timer = session_timer or assert(vim.uv.new_timer())
-  session_timer:start(3000, 3000, vim.schedule_wrap(function()
-    if valid(ck.rail) then
-      M.render_rail(M.rail_buf())
-    end
-  end))
+  session_timer:start(
+    3000,
+    3000,
+    vim.schedule_wrap(function()
+      if valid(ck.rail) then
+        M.render_rail(M.rail_buf())
+      end
+    end)
+  )
   layout()
   M.render_rail(M.rail_buf())
   focus_rail()
@@ -341,7 +345,10 @@ function M.render_thread(buf)
       for _, q in ipairs(m.questions or {}) do
         local key = m.id .. "/" .. q.id
         local open = open_keys[key] ~= nil
-        line("? " .. q.text .. (#q.options == 0 and "  (answer in your reply)" or ""), open and "DiagnosticWarn" or "Comment")
+        line(
+          "? " .. q.text .. (#q.options == 0 and "  (answer in your reply)" or ""),
+          open and "DiagnosticWarn" or "Comment"
+        )
         local block = { key = key, first = #lines, opts = q.options }
         for i, opt in ipairs(q.options) do
           local picked = open and d.answers[key] and d.answers[key][opt]
@@ -374,7 +381,10 @@ function M.render_thread(buf)
         line(("  ✐ edited %s"):format(ed.path or ed.attachment), "Comment")
       end
       for _, n in ipairs(m.annotations or {}) do
-        line(("  ✎ [%s] %s%s"):format(n.label, n.loc or "", (n.text or "") ~= "" and (" — " .. n.text) or ""), "Comment")
+        line(
+          ("  ✎ [%s] %s%s"):format(n.label, n.loc or "", (n.text or "") ~= "" and (" — " .. n.text) or ""),
+          "Comment"
+        )
       end
     end
   end
@@ -545,9 +555,16 @@ function M.select(tid, focus, opts)
   end
   M.render_thread(buf)
   local att = ck.last_att[tid]
-  if not (att and vim.tbl_contains(vim.tbl_map(function(a)
-    return a.sha256
-  end, t.deliverables), att.sha256)) then
+  if
+    not (
+      att and vim.tbl_contains(
+        vim.tbl_map(function(a)
+          return a.sha256
+        end, t.deliverables),
+        att.sha256
+      )
+    )
+  then
     att = t.deliverables[1]
   end
   for _, a in ipairs(t.deliverables) do
@@ -556,9 +573,12 @@ function M.select(tid, focus, opts)
   for b, v in pairs(views) do
     if v.kind == "attachment" and vim.api.nvim_buf_is_valid(b) then
       vim.bo[b].buflisted = v.tid == tid
-        and vim.tbl_contains(vim.tbl_map(function(a)
-          return a.sha256
-        end, t.deliverables), v.att.sha256)
+        and vim.tbl_contains(
+          vim.tbl_map(function(a)
+            return a.sha256
+          end, t.deliverables),
+          v.att.sha256
+        )
     end
   end
   local auto_diff = att and att.type == "diff" and att
@@ -647,7 +667,12 @@ local function render_notes(buf)
   local function put(n, sent)
     local first = math.min(n.line_start, count) - 1
     local row = math.min(n.line_end, count) - 1
-    local text = ("%s [%s%s] %s"):format(sent and "✓" or "✎", n.label, n.blocking and ", blocking" or "", n.text or "")
+    local text = ("%s [%s%s] %s"):format(
+      sent and "✓" or "✎",
+      n.label,
+      n.blocking and ", blocking" or "",
+      n.text or ""
+    )
     vim.api.nvim_buf_set_extmark(buf, ns, first, 0, {
       sign_text = sent and "✓" or "✎",
       sign_hl_group = sent and "Comment" or "DiagnosticHint",
@@ -816,9 +841,15 @@ local function workspace_winbar(buf)
   if t.stage then
     state[#state + 1] = t.stage .. " r" .. t.round
   end
-  if v.edited or (v.att.type == "diff" and #vim.tbl_filter(function(e)
-    return e.sha256 == v.att.sha256
-  end, store.edits(t)) > 0) then
+  if
+    v.edited
+    or (
+      v.att.type == "diff"
+      and #vim.tbl_filter(function(e)
+        return e.sha256 == v.att.sha256
+      end, store.edits(t)) > 0
+    )
+  then
     state[#state + 1] = "%#DiagnosticHint#✐ edited%*"
   end
   if store.changed_since_sent(v.att) then
@@ -867,7 +898,13 @@ function attachment_buf(tid, att)
   buf = scratch(name, ft, is_diff and "nofile" or "acwrite", true)
   views[buf] = { kind = "attachment", tid = tid, att = att }
   local edited = not is_diff and vim.fn.filereadable(store.edit_file(tid, att)) == 1
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, edited and vim.fn.readfile(store.edit_file(tid, att)) or store.blob(att.sha256))
+  vim.api.nvim_buf_set_lines(
+    buf,
+    0,
+    -1,
+    false,
+    edited and vim.fn.readfile(store.edit_file(tid, att)) or store.blob(att.sha256)
+  )
   vim.bo[buf].modified = false
   vim.bo[buf].modifiable = not is_diff
   common_maps(buf, not is_diff)
@@ -1029,12 +1066,7 @@ function M.send(tid)
   if text == "" and #t.drafts == 0 and #answers == 0 and #edits == 0 and not d.verdict then
     return vim.notify("cockpit: nothing to send", vim.log.levels.WARN)
   end
-  if
-    (d.verdict == "changes_requested" or d.verdict == "reject")
-    and text == ""
-    and #t.drafts == 0
-    and #edits == 0
-  then
+  if (d.verdict == "changes_requested" or d.verdict == "reject") and text == "" and #t.drafts == 0 and #edits == 0 then
     return vim.notify("cockpit: say what to change (reply text, notes or edits)", vim.log.levels.WARN)
   end
   local reply = store.append(store.thread_file(tid), {
@@ -1155,7 +1187,11 @@ function M.render_board(buf)
       return a.ts > b.ts
     end)
     lines[#lines + 1] = ""
-    lines[#lines + 1] = ("── %s (%d)%s"):format(LANE_NAMES[lane], #cards, lane == "done" and " · last 7 days" or "")
+    lines[#lines + 1] = ("── %s (%d)%s"):format(
+      LANE_NAMES[lane],
+      #cards,
+      lane == "done" and " · last 7 days" or ""
+    )
     marks[#marks + 1] = { #lines - 1, "Title" }
     for _, c in ipairs(cards) do
       local waiting = c.thread and (store.thread(c.thread) or {}).status == "needs_you"
