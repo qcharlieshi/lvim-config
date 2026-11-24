@@ -184,6 +184,14 @@ The tree shape stays `projects > agents (forks nested) > threads`. Changes:
 3. `agent rename` works on a live, idle agent without disturbing it. `tab rename` works on a tab hosting an agent.
 4. Closing a tab via the API ends the Claude process in it (for kill and fresh).
 
+**Results (spike, 2026-11-24, herdr session `ckprobe`): all confirmed.**
+- `tab create --env COCKPIT_PROJECT=probe` → the Claude started in it ran `printenv` → `probe`.
+- `/clear` sent via `agent prompt` changed `agent_session.value` (`dc141719…` → `30ab86ce…`); the herdr name stayed `probe-1`.
+- `agent rename` and `tab rename` on a live idle agent both succeed; `agent get probe-x` resolves.
+- `tab close` ended the Claude process (pid gone within 5 s).
+- `claude --resume dc141719…` in a new tab reports `agent_session.value = dc141719…`, so resume keeps the id.
+- `tab rename` on a new workspace's first tab works (used for the `shell` tab).
+
 ## 6. Calls I made (check these)
 
 - Kept the `repos` key (it means dirs) instead of renaming it to `dirs`.
