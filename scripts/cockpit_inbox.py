@@ -91,19 +91,51 @@ def append(path, event):
         "id": secrets.token_hex(6),
         **{k: v for k, v in event.items() if v is not None},
     }
-    with open(path, "a") as f:
-        f.write(json.dumps(event) + "\n")
+    data = (json.dumps(event) + "\n").encode()
+    # One write() on an O_APPEND fd: concurrent writers can't interleave inside a line, readers see all or nothing
+    fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
+    try:
+        if os.write(fd, data) != len(data):
+            raise OSError(f"short write to {path}")
+    finally:
+        os.close(fd)
     return event
 
 
 def read_jsonl(path):
-    if not path.exists():
+    """Complete events only: a last line without its newline is a write still in flight, a bad line is skipped,
+    and an event from a schema version this reader doesn't know is ignored (same rules as store.lua)."""
+    try:
+        lines = path.read_bytes().split(b"\n")[:-1]
+    except FileNotFoundError:
         return []
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    out = []
+    for line in lines:
+        try:
+            e = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(e, dict) and e.get("v", 1) == 1:
+            out.append(e)
+    return out
+
+
+VALID_ID = re.compile(r"[A-Za-z0-9_-]+")
+
+
+def valid_id(s):
+    """Thread and session ids become file names: nothing that can leave its directory."""
+    return isinstance(s, str) and VALID_ID.fullmatch(s) is not None
+
+
+def check_id(s, what="thread id"):
+    if not valid_id(s):
+        die(f"invalid {what} {s!r} (allowed: letters, digits, _ and -)", EX_USAGE)
+    return s
 
 
 def thread_path(tid, must_exist=True):
-    path = THREADS / f"{tid}.jsonl"
+    path = THREADS / f"{check_id(tid)}.jsonl"
     if must_exist and not path.exists():
         die(f"no thread {tid}", EX_NOINPUT)
     return path
@@ -183,8 +215,21 @@ def snapshot(data, name, **extra):
     blob = BLOBS / sha
     if not blob.exists():
         BLOBS.mkdir(parents=True, exist_ok=True)
-        blob.write_bytes(data)
+        tmp = BLOBS / f".{sha}.{secrets.token_hex(4)}"  # renamed into place: a blob is never seen half-written
+        tmp.write_bytes(data)
+        tmp.replace(blob)
     return {"name": name, "sha256": sha, **{k: v for k, v in extra.items() if v is not None}}
+
+
+def edit_patch(ed):
+    """A reply edit's patch: inline (older replies) or in blobs/ by sha (store.lua keeps reply lines small)."""
+    if ed.get("patch") is not None:
+        return ed["patch"]
+    sha = ed.get("patch_sha256")
+    try:
+        return (BLOBS / check_id(sha, "blob sha")).read_text()
+    except OSError:
+        return f"(patch blob missing: {sha})"
 
 
 def git_diff(rev, cwd, paths=None, skip_untracked=(), exclude=()):
@@ -242,6 +287,7 @@ def repo_state(repo):
 
 def cmd_snapshot(a):
     """Detached child of the UserPromptSubmit hook: record every repo's state at turn start."""
+    check_id(a.session, "session id")
     repos = {}
     for r in repos_under(a.cwd):
         try:
@@ -282,6 +328,7 @@ def turn_diffs(sid, transcript=None, exclude=()):
     Repos snapshotted at turn start: worktree vs that snapshot (catches Bash edits and commits, leaves out
     work that predates the turn). Other repos holding a file the agent edited: those files vs HEAD."""
     turn = {}
+    sid = sid if valid_id(sid) else None
     if sid and (TURNS / f"{sid}.json").exists():
         try:
             turn = json.loads((TURNS / f"{sid}.json").read_text())
@@ -391,8 +438,8 @@ def cmd_post(a):
 
 
 def pending_replies(events):
-    acked = {e["reply"] for e in events if e["kind"] == "ack"}
-    return [e for e in events if e["kind"] == "reply" and e["id"] not in acked]
+    acked = {e.get("reply") for e in events if e.get("kind") == "ack"}
+    return [e for e in events if e.get("kind") == "reply" and e.get("id") not in acked]
 
 
 def format_reply(tid, reply):
@@ -411,7 +458,7 @@ def format_reply(tid, reply):
             if n.get("text"):
                 out.append(f"   {n['text']}")
     for ed in reply.get("edits") or []:
-        out += ["", f"Edited by the human: {ed.get('path') or ed['attachment']}", "```diff", ed["patch"].rstrip(), "```"]
+        out += ["", f"Edited by the human: {ed.get('path') or ed['attachment']}", "```diff", edit_patch(ed).rstrip(), "```"]
     if reply.get("edits"):
         out += ["", NEXT_STEP["edits"]]
     out += ["", NEXT_STEP[reply.get("verdict")].format(cli=CLI, tid=tid)]
@@ -477,13 +524,13 @@ def cmd_read(a):
             return
         sys.exit(emit(a.thread, new))
     for e in events:
-        if e["kind"] == "message":
+        if e.get("kind") == "message":
             print(f"## agent · {e['at']}\n{e.get('text', '')}")
             for att in e.get("attachments", []):
                 print(f"  attached: {att['name']}")
             for q in e.get("questions", []):
                 print(f"  ? {q['text']} {q['options'] or ''}")
-        elif e["kind"] == "reply":
+        elif e.get("kind") == "reply":
             print(f"## human · {e['at']}\n{format_reply(a.thread, e)}")
         print()
 
@@ -491,20 +538,24 @@ def cmd_read(a):
 def cmd_list(_):
     for path in sorted(THREADS.glob("*.jsonl")):
         events = read_jsonl(path)
-        last = next((e for e in reversed(events) if e["kind"] in ("message", "reply")), {})
+        last = next((e for e in reversed(events) if e.get("kind") in ("message", "reply")), {})
         state = "replied" if last.get("kind") == "reply" else "open"
-        print(f"{path.stem}\t{state}\t{events[0].get('title', '')}")
+        title = next((e["title"] for e in events if e.get("title")), "")
+        print(f"{path.stem}\t{state}\t{title}")
 
 
 def cards():
     latest = {}
     for e in read_jsonl(CARDS):
-        latest[e["card"]] = e
+        if e.get("card"):
+            latest[e["card"]] = e
     return latest
 
 
 def cmd_card(a):
     if a.card_cmd == "add":
+        if a.thread is not None:
+            check_id(a.thread)
         card = {"card": f"c-{secrets.token_hex(4)}", "title": a.title, "lane": a.lane, "thread": a.thread}
     else:
         card = cards().get(a.card)
@@ -644,7 +695,8 @@ def hook_stop(payload):
     asks = last_line.rstrip("*_`) \t").endswith("?")
     if not reply_thread and not asks:
         return None
-    tid = reply_thread or f"session-{(payload.get('session_id') or 'unknown')[:8]}"
+    sid8 = (payload.get("session_id") or "")[:8]
+    tid = reply_thread or f"session-{sid8 if valid_id(sid8) else 'unknown'}"
     path = THREADS / f"{tid}.jsonl"
     event = {
         "kind": "message",

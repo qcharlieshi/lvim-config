@@ -51,5 +51,21 @@
     "open_questions": [],
     "pending_replies": [],
     "status": "unread"
+  },
+  "torn": {
+    "archived": false,
+    "drafts": [],
+    "open_questions": [],
+    "status": "replied",
+    "pending_replies": [
+      "r1"
+    ]
+  },
+  "unterminated": {
+    "archived": false,
+    "drafts": [],
+    "open_questions": [],
+    "status": "unread",
+    "pending_replies": []
   }
 }

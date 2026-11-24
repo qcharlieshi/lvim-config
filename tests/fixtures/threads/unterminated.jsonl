@@ -1,0 +1,2 @@
+{"v": 1, "at": "2026-01-01T00:00:00+00:00", "ts": 100, "id": "m1", "kind": "message", "title": "Torn", "project": "p", "text": "x", "attachments": [], "questions": [], "session": {"agent": "claude", "herdr": {"terminal_id": "term-a"}, "cwd": "/tmp/repo", "pid": 1}, "from": "agent"}
+{"v": 1, "at": "2026-01-01T00:00:00+00:00", "ts": 110, "id": "r1", "kind": "reply", "verdict": "approve", "text": "ok", "answers": [], "annotations": [], "from": "human"}

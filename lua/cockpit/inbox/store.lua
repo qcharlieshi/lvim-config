@@ -22,22 +22,60 @@ function M.path(...)
   return table.concat({ M.root, ... }, "/")
 end
 
+-- Thread ids, blob shas and session ids become file names (shared rule with cockpit_inbox.py's valid_id)
+function M.valid_id(id)
+  return type(id) == "string" and id:match("^[%w_-]+$") ~= nil
+end
+
+local function checked(id)
+  if not M.valid_id(id) then
+    error(("cockpit: invalid id %q"):format(tostring(id)), 2)
+  end
+  return id
+end
+
+-- Complete events only (same rules as cockpit_inbox.py): a last line without its newline is a write still in
+-- flight, a bad line is skipped, an event from an unknown schema version is ignored
 local function read_jsonl(file)
-  local f = io.open(file, "r")
+  local f = io.open(file, "rb")
   if not f then
     return {}
   end
+  local data = f:read("a") or ""
+  f:close()
   local out = {}
-  for line in f:lines() do
-    if line ~= "" then
-      local ok, ev = pcall(vim.json.decode, line, { luanil = { object = true, array = true } })
-      if ok then
-        out[#out + 1] = ev
-      end
+  for line in data:gmatch("([^\n]*)\n") do
+    local ok, ev = pcall(vim.json.decode, line, { luanil = { object = true, array = true } })
+    if ok and type(ev) == "table" and (ev.v == nil or ev.v == 1) then
+      out[#out + 1] = ev
     end
   end
-  f:close()
   return out
+end
+M.read_jsonl = read_jsonl
+
+-- One write() on an O_APPEND fd: a concurrent reader or writer never sees half an event (stdio may split it)
+local function append_line(file, line)
+  vim.fn.mkdir(vim.fs.dirname(file), "p")
+  local fd = assert(vim.uv.fs_open(file, "a", 420))
+  local n, err = vim.uv.fs_write(fd, line)
+  vim.uv.fs_close(fd)
+  assert(n == #line, err or ("short write to " .. file))
+end
+
+-- Content-addressed; renamed into place so a reader never sees half a blob
+function M.put_blob(data)
+  local sha = vim.fn.sha256(data)
+  local file = M.path("blobs", sha)
+  if not vim.uv.fs_stat(file) then
+    vim.fn.mkdir(M.path("blobs"), "p")
+    local tmp = M.path("blobs", "." .. sha .. "." .. vim.uv.hrtime())
+    local fd = assert(vim.uv.fs_open(tmp, "w", 420))
+    vim.uv.fs_write(fd, data)
+    vim.uv.fs_close(fd)
+    assert(vim.uv.fs_rename(tmp, file))
+  end
+  return sha
 end
 
 function M.append(file, ev)
@@ -47,15 +85,31 @@ function M.append(file, ev)
     ts = os.time(),
     id = vim.fn.sha256(tostring(vim.uv.hrtime()) .. math.random()):sub(1, 12),
   })
-  vim.fn.mkdir(vim.fs.dirname(file), "p")
-  local f = assert(io.open(file, "a"))
-  f:write(vim.json.encode(ev) .. "\n")
-  f:close()
+  if ev.kind == "reply" and ev.edits then
+    -- Patches can be whole files: keep the reply line small, the agent reads them from blobs/ by sha
+    ev.edits = vim.tbl_map(function(ed)
+      if not ed.patch then
+        return ed
+      end
+      local out = vim.tbl_extend("force", ed, { patch_sha256 = M.put_blob(ed.patch) })
+      out.patch = nil
+      return out
+    end, ev.edits)
+  end
+  append_line(file, vim.json.encode(ev) .. "\n")
   return ev
 end
 
+-- A reply edit's patch: inline (older replies) or from blobs/ by sha
+function M.edit_patch(ed)
+  if ed.patch then
+    return ed.patch
+  end
+  return table.concat(M.blob(ed.patch_sha256), "\n") .. "\n"
+end
+
 function M.thread_file(id)
-  return M.path("threads", id .. ".jsonl")
+  return M.path("threads", checked(id) .. ".jsonl")
 end
 
 function M.is_blocking(label)
@@ -63,6 +117,9 @@ function M.is_blocking(label)
 end
 
 function M.thread(id)
+  if not M.valid_id(id) then
+    return nil
+  end
   local events = read_jsonl(M.thread_file(id))
   if #events == 0 then
     return nil
@@ -200,13 +257,13 @@ end
 ---------------------------------------------------------------------------
 
 function M.edit_file(tid, att)
-  return M.path("edits", tid, att.sha256)
+  return M.path("edits", checked(tid), checked(att.sha256))
 end
 
 -- Codediff deliverables are reviewed as two directories: base/ (before) vs review/ (the
 -- agent's version, editable); sent/ keeps the agent's version pristine to diff edits against.
 function M.review_root(tid, att)
-  return M.path("review", tid, att.sha256:sub(1, 12))
+  return M.path("review", checked(tid), checked(att.sha256):sub(1, 12))
 end
 
 function M.patch_paths(lines)
@@ -284,7 +341,7 @@ function M.threads()
 end
 
 function M.blob(sha)
-  local file = M.path("blobs", sha)
+  local file = M.valid_id(sha) and M.path("blobs", sha) or ""
   return vim.fn.filereadable(file) == 1 and vim.fn.readfile(file) or { "(blob missing: " .. sha .. ")" }
 end
 
@@ -372,7 +429,7 @@ function M.ledger(t, reply)
   for _, ed in ipairs(reply.edits or {}) do
     M.append(
       file,
-      vim.tbl_extend("force", base, { kind = "edit", verdict = reply.verdict, sha256 = ed.sha256, patch = ed.patch })
+      vim.tbl_extend("force", base, { kind = "edit", verdict = reply.verdict, sha256 = ed.sha256, patch = M.edit_patch(ed) })
     )
   end
   for _, n in ipairs(reply.annotations or {}) do
