@@ -893,6 +893,19 @@ print(next(a["pane_id"] for a in json.load(sys.stdin)["result"]["agents"] if a.g
 ' "$TERM17L") || fail "launcher agent $TERM17L not live"
 "${H[@]}" pane close "$PANE17L" >/dev/null
 ok "launcher: attach marker $TERM17L = %77 while attached, removed after"
+# a rename while attached (learn() renames lilt-3 -> eng-…) must not look like Claude exiting to the watcher
+cat >"$T/bin17h/herdr" <<SH
+#!/bin/sh
+case " \$* " in
+*" agent attach "*) for a; do t=\$a; done; "$REAL_HERDR" --session ckspike agent rename "\$t" renamed17 >/dev/null; sleep 8; exit 0 ;;
+esac
+exec "$REAL_HERDR" "\$@"
+SH
+(cd "$NVIM_CFG" && TMUX=dummy TMUX_PANE=%78 PATH="$T/bin17h:$PATH" COCKPIT_PROJECTS_DIR=$P17 COCKPIT_ATTACH_DIR="$T/att17" \
+  "$NVIM_CFG/scripts/cockpit-claude" </dev/null >"$T/l17r.out" 2>"$T/l17r.err") || true
+"${H[@]}" agent get renamed17 >/dev/null 2>&1 || { cat "$T/l17r.err"; fail "renamed launcher agent was closed by the watcher"; }
+"${H[@]}" pane close "$("${H[@]}" agent get renamed17 | jget 'd["result"]["agent"]["pane_id"]')" >/dev/null
+ok "launcher: renaming the attached agent doesn't make the watcher close its pane"
 # worktrees resolve to their main repo (temp repo, no herdr)
 R17=$T/r17
 git init -q "$R17" && git -C "$R17" commit -q --allow-empty -m init && git -C "$R17" worktree add -q "$R17/.wt" -b wt17 2>/dev/null

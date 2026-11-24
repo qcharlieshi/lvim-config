@@ -32,10 +32,12 @@ if [ $rc -ne 0 ] || [ -z "$name" ] || [ -z "$pane" ] || [ -z "$term" ]; then
   plain "$@"
 fi
 
-# agent state: live | gone (herdr says agent_not_found) | unknown (server slow/unreachable, other errors)
+# agent state: live | gone (herdr says agent_not_found) | unknown (server slow/unreachable, other errors).
+# By pane id, not name: cockpit may rename the agent (lilt-3 -> eng-35131) while it runs, and the old name
+# would read as agent_not_found; a pane with no agent in it reads the same way, so "gone" keeps its meaning.
 state() {
   local out
-  out=$("${H[@]}" agent get "$name" 2>&1) && {
+  out=$("${H[@]}" agent get "$pane" 2>&1) && {
     echo live
     return
   }
@@ -71,7 +73,7 @@ trap 'exit 143' TERM
 trap 'exit 130' INT
 mkdir -p "$(dirname "$marker")" && printf '%s\n' "${TMUX_PANE:-}" >"$marker"
 
-"${H[@]}" agent attach "$name"
+"${H[@]}" agent attach "$pane"
 arc=$?
 rm -f "$marker"
 kill "$watcher" 2>/dev/null
