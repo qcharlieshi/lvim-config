@@ -30,7 +30,7 @@ Exit codes (post --wait, wait, read --new): a verdict and an error never share a
 turn-start snapshot (so the human's own uncommitted work is left out), else the edited files vs HEAD.
 
 Storage ($COCKPIT_INBOX_DIR, default ~/.cockpit/inbox):
-    threads/<id>.jsonl   events: message · reply · annotation · annotation_deleted · state · ack
+    threads/<id>.jsonl   events: message · reply · annotation · annotation_deleted · state · ack · delivery
     blobs/<sha256>       attachment bytes as sent, so annotations pin to what was reviewed
     turns/<session>.json repo states at the session's latest prompt (head, stash-create snap, untracked)
     waiting/<id>         heartbeat while an agent blocks in `wait` (nvim skips tmux delivery)
