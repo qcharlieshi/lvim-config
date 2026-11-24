@@ -97,4 +97,26 @@ T["owner_key: the Claude session that posted it (CLI or herdr), never the termin
   eq(tree.owner_key({}), nil)
 end
 
+T["a dead legacy agent (record without session) keeps its own unattributed threads: one Past row"] = function()
+  local nodes = require("cockpit.inbox.tree").build({
+    threads = { { id = "t9", title = "t9", status = "read", last_ts = 1, owner = { herdr = { terminal_id = "tD" } } } },
+    agents = {},
+    registry = { p = { tD = { name = "lilt-3", project = "p", terminal_id = "tD", ts = 0 } } },
+    projects = { { name = "p" } },
+  })
+  eq(keys(nodes), { "header", "p:p", "past:p", "a:tD", "t9" })
+end
+
+T["an unattributed thread from a project-less live agent's pane is unassigned, not lost"] = function()
+  local th9 = { id = "t9", title = "t9", status = "needs_you", last_ts = 1, owner = { herdr = { terminal_id = "tX" } } }
+  local nodes = require("cockpit.inbox.tree").build({
+    threads = { th9 },
+    agents = { x = { name = "x", terminal_id = "tX", session_id = "SX", status = "idle" } },
+    registry = {},
+    projects = {},
+  })
+  eq(vim.tbl_contains(keys(nodes), "t9"), true)
+  eq(nodes[1].counts.needs_you, 1)
+end
+
 return T

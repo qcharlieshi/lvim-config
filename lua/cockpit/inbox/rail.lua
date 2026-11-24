@@ -592,7 +592,9 @@ function M.kill_agent(node, opts)
   local name = node.name or (a and a.target) or tid
   local project = (node.rec and node.rec.project) or (a and a.project)
   local recs = project and registry.all(project) or {}
-  local rec = node.rec or (project and registry.by_terminal(project, tid))
+  -- an "earlier session" row is display-only: archive its threads, never write its synthetic record
+  local synthetic = node.akey ~= nil and node.akey:match("^old:") ~= nil
+  local rec = not synthetic and (node.rec or (project and registry.by_terminal(project, tid))) or nil
   local sid = node.session_id or (a and a.session_id)
   local target = node.kind == "agent" and node or { akey = sid or ("term:" .. tostring(tid)), terminal_id = tid }
   local owned = vim.tbl_filter(function(t)
@@ -671,6 +673,9 @@ end
 -- m: move this conversation to another project (the rail and new threads follow; the herdr tab stays put)
 function M.move_agent(node)
   local projects, registry = require("cockpit.projects"), require("cockpit.registry")
+  if node.akey and node.akey:match("^old:") then
+    return vim.notify("cockpit: an earlier session can't be moved (X archives its threads)")
+  end
   local a = node.live and node.agent or nil
   local rec = node.rec
     or (

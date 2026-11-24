@@ -290,4 +290,13 @@ T["unacked replies match the golden fixtures"] = function()
   end
 end
 
+T["a reply to an earlier conversation is not typed into the new one in the same pane"] = function()
+  local delivery = require("cockpit.inbox.delivery")
+  live["term-a"] = { target = "agent-1", terminal_id = "term-a", session_id = "S2" }
+  post("t1", { agent = "claude", herdr = { terminal_id = "term-a", session_id = "S1" } })
+  reply("t1")
+  MiniTest.expect.no_equality(delivery.deliver(thread("t1")):find("ended", 1, true), nil)
+  eq(#calls, 0)
+end
+
 return T

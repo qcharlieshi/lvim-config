@@ -237,7 +237,9 @@ function M.learn()
             M.request("tab.rename", { tab_id = a.tab_id, label = slug })
           end
         end
-        registry.append(p, vim.tbl_extend("force", rec, { name = slug, renamed = true }))
+        -- from the session's newest record, wherever m moved it, so a rename never undoes a move
+        local newest = registry.find_session(sid) or rec
+        registry.append(newest.project or p, vim.tbl_extend("force", newest, { name = slug, renamed = true }))
       end
     end
   end

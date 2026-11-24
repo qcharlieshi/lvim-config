@@ -293,10 +293,16 @@ function M.build(opts)
       local key = M.owner_key(t)
       local tid = t.owner and t.owner.herdr and t.owner.herdr.terminal_id
       local s = tid and (seat[tid] or (key_of_seat[tid] and live[key_of_seat[tid]]))
+      local legacy = tid and seat[tid]
       if key and known[key] then
         by_owner[key] = by_owner[key] or {}
         table.insert(by_owner[key], t)
-      elseif s then
+      elseif legacy and not legacy.session and not consumed[regkey(legacy)] and not live[regkey(legacy)] then
+        -- a dead pre-session agent: its unattributed threads are its own (one Past row, not two)
+        local k = regkey(legacy)
+        by_owner[k] = by_owner[k] or {}
+        table.insert(by_owner[k], t)
+      elseif s and s.project then
         local okey = "old:" .. tid
         if not by_owner[okey] then
           by_owner[okey] = {}

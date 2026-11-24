@@ -189,6 +189,29 @@ cache["lilt-9"].name = "eng-35131"
 h.learn()
 assert(#calls == 0, "renamed twice: " .. vim.inspect(calls))
 assert(registry.by_terminal("lilt", "tM").name == "mine") -- hand-set names are never touched
+-- I3: a rename after m (move) keeps the move: written to the session's newest record's project, moved kept
+require("cockpit.projects").save({ name = "q21", repos = { vim.env.T .. "/q21" } })
+registry.append("lilt", { name = "lilt-5", project = "lilt", terminal_id = "tV", session = "V1" })
+registry.append("q21", { name = "lilt-5", project = "q21", terminal_id = "tV", session = "V1", moved = true })
+cache.v = { name = "lilt-5", target = "lilt-5", project = "lilt", terminal_id = "tV", session_id = "V1", tab_id = "w1:t5",
+  title = "ENG-777 views", status = "idle" }
+h.learn()
+local newest = registry.find_session("V1")
+assert(newest and newest.name == "eng-777" and newest.project == "q21" and newest.moved, vim.inspect(newest))
+-- I2: X / m on an "earlier session" row never write a registry record (the synthetic rec is display-only)
+local rail, store = require("cockpit.inbox.rail"), require("cockpit.inbox.store")
+vim.fn.mkdir(store.path("threads"), "p")
+store.append(store.thread_file("old21"), { kind = "message", text = "x", ts = 1, session = { herdr = { terminal_id = "tL" } } })
+local before = vim.deepcopy(registry.by_terminal("lilt", "tL"))
+local old = { kind = "agent", akey = "old:tL", terminal_id = "tL", live = false, name = "eng-35131 · earlier session",
+  rec = { name = "eng-35131 · earlier session", terminal_id = "tL", project = "lilt" } }
+vim.fn.confirm = function() return 1 end
+rail.kill_agent(old)
+assert(store.thread("old21").archived, "earlier session's thread not archived")
+assert(vim.deep_equal(registry.by_terminal("lilt", "tL"), before), "X wrote a record: " .. vim.inspect(registry.by_terminal("lilt", "tL")))
+vim.ui.select = function(_, _, cb) cb("q21") end
+rail.move_agent(old)
+assert(vim.deep_equal(registry.by_terminal("lilt", "tL"), before) and not registry.by_terminal("q21", "tL"), "m wrote a record")
 print("T21 OK")
 LUA
   nlua "$T/t21.lua" 2>&1 | tee "$T/t21.out" | grep -q "T21 OK" || { cat "$T/t21.out"; fail "section 21"; }

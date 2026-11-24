@@ -47,6 +47,11 @@ function M.default_resolve(t)
   if hid then
     -- terminal_id, not pane_id: pane ids restart with the herdr server
     local agent = require("cockpit.herdr").by_terminal(hid.terminal_id)
+    -- the pane may run a newer conversation now (/clear): never type a reply into the wrong one
+    local sid = store.owner_session(t) or hid.session_id
+    if agent and sid and agent.session_id and agent.session_id ~= sid then
+      return nil, "that conversation ended (another one runs in its pane); reply queued until it's back"
+    end
     if agent then
       return { via = "herdr", target = agent.target }
     end

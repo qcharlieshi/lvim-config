@@ -56,6 +56,18 @@ function M.by_terminal(project, terminal_id)
   return got
 end
 
+-- the newest record of a Claude session across all projects (m writes the move into the target's file)
+function M.find_session(sid)
+  local best
+  for _, p in ipairs(require("cockpit.projects").list()) do
+    local rec = M.all(p.name)[sid]
+    if rec and (not best or (rec.ts or 0) >= (best.ts or 0)) then
+      best = rec
+    end
+  end
+  return best
+end
+
 function M.names(project)
   local set = {}
   for _, rec in pairs(M.all(project)) do
