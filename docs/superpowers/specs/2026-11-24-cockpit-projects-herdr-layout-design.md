@@ -113,7 +113,7 @@ The other symptoms share the same root:
 - **The workspace's root tab is the project shell.** On first spawn, cockpit creates the workspace, renames its first tab to `shell`, and then creates the agent tab. Agents never start in `shell`.
 - **Forks** (`forks.lua`) open in a new tab of the parent's workspace instead of splitting the parent's pane. Worktree forks use their own `cwd`.
 - **Kill** closes the agent's **tab** when that tab holds only the agent's pane; otherwise it closes just the pane.
-- **Fresh (`R` on an agent row, and `:CockpitFresh`):** with confirmation, kill the agent's tab, then `spawn()` a new agent in the same project and dir. The new agent gets the next name in the sequence (§4.4). This is the supported way to start a new conversation.
+- **Fresh (`N` on an agent row; `R` is already refresh):** with confirmation, kill the agent's tab, then `spawn()` a new agent in the same project and dir. The new agent gets the next name in the sequence (§4.4). This is the supported way to start a new conversation.
 
 ### 4.3 Agent identity = Claude session
 
@@ -170,7 +170,7 @@ The other symptoms share the same root:
 The tree shape stays `projects > agents (forks nested) > threads`. Changes:
 - **Keys:** agents are keyed `a:<session_id>`.
 - **Past:** contains dead sessions and "earlier session" orphans.
-- **`R` fresh** (§4.2).
+- **`N` fresh** (§4.2).
 - **`m` move to project:**
   - It appends a registry record that sets `project` for **that session**. The tab stays in its herdr workspace.
   - Precedence for an agent's project: the registry move, then the workspace label, then the registry `project`.
@@ -202,7 +202,7 @@ The tree shape stays `projects > agents (forks nested) > threads`. Changes:
 - Ticket prefixes default to `ENG` only.
 - Old threads are tagged once, by thread-id prefix or by searching transcripts. Unmatched ones go to Past or Unassigned and are never guessed onto a live agent.
 - "Move to project" applies per session.
-- Fresh (`R`) asks for confirmation before killing.
+- Fresh (`N`) asks for confirmation before killing.
 
 ## 7. Left to the builder
 

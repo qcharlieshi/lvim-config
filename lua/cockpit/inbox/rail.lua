@@ -578,7 +578,9 @@ end
 
 -- X: kill the agent's pane, archive the threads it owns, mark it dead in the registry.
 -- Accepts a rail agent node or a herdr cache entry (from the agent picker).
-function M.kill_agent(node)
+-- opts.prompt replaces the confirm text; opts.done() runs after a successful kill.
+function M.kill_agent(node, opts)
+  opts = opts or {}
   local herdr, registry = require("cockpit.herdr"), require("cockpit.registry")
   local tid = node.terminal_id
   local a -- live herdr cache entry to kill; nil for a dead (past) agent
@@ -607,7 +609,7 @@ function M.kill_agent(node)
   if forks > 0 then
     msg = msg .. (" (%d forks keep running)"):format(forks)
   end
-  if vim.fn.confirm(msg, "&Yes\n&No", 2) ~= 1 then
+  if vim.fn.confirm(opts.prompt or msg, "&Yes\n&No", 2) ~= 1 then
     return
   end
   if a and a.source == "session" then
@@ -637,11 +639,67 @@ function M.kill_agent(node)
   end
   vim.notify(("cockpit: killed %s, archived %d threads"):format(name, #owned))
   ui().refresh()
+  if opts.done then
+    opts.done()
+  end
+end
+
+-- N: end this conversation and start a fresh one in a new tab, same project and dir (the replacement for /clear)
+function M.fresh_agent(node)
+  local a = node.live and node.agent
+  if not a or a.source == "session" then
+    return vim.notify("cockpit: fresh needs a live herdr agent")
+  end
+  local project = (node.rec and node.rec.project) or a.project
+  local dir = (node.rec and node.rec.dir) or a.cwd
+  if not project then
+    return vim.notify("cockpit: " .. node.name .. " has no project", vim.log.levels.WARN)
+  end
+  M.kill_agent(node, {
+    prompt = ("Start a fresh %s in %s? (ends this conversation, archives its threads)"):format(
+      node.name,
+      vim.fn.fnamemodify(dir, ":~")
+    ),
+    done = function()
+      require("cockpit.herdr").spawn(project, nil, function()
+        ui().refresh()
+      end, { dir = dir })
+    end,
+  })
+end
+
+-- m: move this conversation to another project (the rail and new threads follow; the herdr tab stays put)
+function M.move_agent(node)
+  local projects, registry = require("cockpit.projects"), require("cockpit.registry")
+  local a = node.live and node.agent or nil
+  local rec = node.rec
+    or (
+      a
+      and { name = a.name, terminal_id = a.terminal_id, session = a.session_id, pane_id = a.pane_id, tab_id = a.tab_id }
+    )
+  if not rec or not rec.terminal_id then
+    return vim.notify("cockpit: nothing to move")
+  end
+  local names = vim.tbl_map(function(p)
+    return p.name
+  end, projects.list())
+  vim.ui.select(names, { prompt = "Move " .. node.name .. " to project" }, function(choice)
+    if not choice then
+      return
+    end
+    registry.append(
+      choice,
+      vim.tbl_extend("force", rec, { project = choice, moved = true, session = rec.session or node.session_id })
+    )
+    ui().refresh()
+  end)
 end
 
 local HELP = {
   "Agent / fork row (thread row: its agent)",
   "  X     kill + archive its threads",
+  "  N     fresh conversation (new tab, same dir)",
+  "  m     move to project",
   "  f F   fork (continue / worktree)",
   "  i     interrupt      gt  attach",
   "        (tmux sessions: no forks; X ends claude, pane stays)",
@@ -793,6 +851,8 @@ function M.attach(buf)
     open(buf, cursor_node(buf))
   end, "Open")
   map(buf, "X", with_agent(M.kill_agent, false, false), "Kill agent")
+  map(buf, "N", with_agent(M.fresh_agent, true, true), "Fresh conversation (new tab, same dir)")
+  map(buf, "m", with_agent(M.move_agent, false, false), "Move agent to project")
   local function fork(kind)
     return function(a)
       vim.ui.input({ prompt = "Fork prompt (optional): " }, function(text)
