@@ -258,9 +258,9 @@ assert(vim.fn.glob(store.path("threads", "*-s6.jsonl")) ~= "", "agent did not po
 ui.open()
 local rail = vim.fn.bufnr("cockpit://rail")
 -- the first line of the agent's card carries its status glyph (○ idle, ✕ dead)
-local tid = h.agents()[name].terminal_id
+local ak = h.agents()[name].session_id -- rail agents are Claude sessions
 local function agent_line()
-  local r = require("cockpit.inbox.rail").row(rail, "a:" .. tid)
+  local r = require("cockpit.inbox.rail").row(rail, "a:" .. ak)
   return r and vim.api.nvim_buf_get_lines(rail, r - 1, r, false)[1] or ""
 end
 local function has_s6()
@@ -393,49 +393,7 @@ nlua "$T/t9.lua" 2>&1 | tee "$T/t9.out" | grep -q "T9 OK" || { cat "$T/t9.out"; 
 ok "spawn records {terminal_id, session} in agents.jsonl; respawn gets a fresh name; thread.owner = first message session"
 [ "$LAST" -le 9 ] && exit 0
 
-# --- 10: rail tree model (fixtures only, no herdr) ----------------------------------------------------
-echo "10: tree model"
-cat >"$T/t10.lua" <<'LUA'
-local tree = require("cockpit.inbox.tree")
-local function ag(name, tid, status, project)
-  return { name = name, terminal_id = tid, status = status, project = project }
-end
-local agents = { A = ag("A", "tA", "idle", "p"), F = ag("F", "tF", "idle", "p"), G = ag("G", "tG", "idle", "p") }
-local registry = { p = {
-  tA = { name = "A", project = "p", terminal_id = "tA", ts = 1 },
-  tF = { name = "F", project = "p", terminal_id = "tF", parent_terminal = "tA", parent_name = "A", fork = "continue", ts = 2 },
-  tD = { name = "D", project = "p", terminal_id = "tD", dead = true, ts = 0 },
-  tG = { name = "G", project = "p", terminal_id = "tG", parent_terminal = "tD", parent_name = "D", fork = "continue", ts = 3 },
-}, q = {} }
-local function th(id, owner, status, archived)
-  return { id = id, title = id, status = status, archived = archived, last_ts = 1,
-    owner = owner and { herdr = { terminal_id = owner } } or nil }
-end
-local threads = { th("t1", "tA", "needs_you"), th("t2", "tF", "read"), th("t3", "tD", "read", true), th("t4", nil, "read") }
-local function keys(nodes)
-  return vim.tbl_map(function(n) return n.kind == "thread" and n.thread.id or n.key end, nodes)
-end
-local function run(show)
-  return tree.build({ show_archived = show, threads = threads, agents = agents, registry = registry,
-    projects = { { name = "p" }, { name = "q" } } })
-end
-local nodes = run(false)
-assert(vim.deep_equal(keys(nodes), { "header", "p:p", "a:tA", "a:tF", "t2", "t1", "a:tG", "past:p", "a:tD", "p:q", "unassigned", "t4" }),
-  vim.inspect(keys(nodes)))
-local by = {}
-for _, n in ipairs(nodes) do by[n.key] = n end
-assert(by["p:p"].counts.needs_you == 1, vim.inspect(by["p:p"].counts))
-assert(by["a:tG"].orphan_of == "D" and by["a:tG"].depth == 1)
-assert(by["a:tF"].fork == "continue" and by["a:tF"].depth == 2 and by["a:tF"].live)
-assert(by["a:tD"].live == false and by["a:tD"].depth == 2)
-assert(by["p:q"] and #by["p:q"].children == 0)
-assert(not vim.tbl_contains(keys(nodes), "t3"), "t3 shown without show_archived")
-assert(vim.tbl_contains(keys(run(true)), "t3"), "t3 missing with show_archived")
-print("T10 OK")
-LUA
-nlua "$T/t10.lua" 2>&1 | tee "$T/t10.out" | grep -q "T10 OK" || { cat "$T/t10.out"; fail "section 10"; }
-ok "tree.build orders project > agent > forks > threads, orphans, past, unassigned; archived gated"
-[ "$LAST" -le 10 ] && exit 0
+# --- 10: rail tree model — moved to scripts/cockpit-smoke-model.sh (fixtures only) ------------------------
 
 # --- 11: rail — project tree, folds survive refresh, kill archives ------------------------------------
 echo "11: rail tree + folds + kill-archive"
@@ -460,6 +418,7 @@ assert(vim.iter(lines(buf)):any(function(l) return l:match("^▾ r%s*$") ~= nil 
 local err, name = await(function(cb) h.spawn("smoke", nil, cb) end)
 assert(not err, vim.inspect(err))
 local tid = h.agents()[name].terminal_id
+local ak = h.agents()[name].session_id
 local cmd = ("python3 %s post --title s11 --text hi"):format(vim.env.CLI)
 await(function(cb)
   h.request("agent.prompt", { target = name, text = "Run exactly this bash command, then reply done: " .. cmd, wait = { timeout_ms = 180000 } }, cb)
@@ -471,9 +430,9 @@ local function row(key) ui.refresh_rail(); return rail.row(buf, key) end
 assert(vim.wait(10000, function() return row("t:" .. sid) ~= nil end, 200), "s11 never in rail")
 local pr = row("p:smoke")
 local tr = rail.row(buf, "t:" .. sid)
-assert(rail.row(buf, "a:" .. tid) == pr + 1 and tr > pr + 1, "not in order:\n" .. table.concat(lines(buf), "\n"))
+assert(rail.row(buf, "a:" .. ak) == pr + 1 and tr > pr + 1, "not in order:\n" .. table.concat(lines(buf), "\n"))
 for r = pr + 2, tr - 1 do
-  assert(rail.node(buf, r).key == "a:" .. tid, "row " .. r .. " between agent and thread is not its card")
+  assert(rail.node(buf, r).key == "a:" .. ak, "row " .. r .. " between agent and thread is not its card")
 end
 local L = lines(buf)
 assert(L[pr]:match("^▾ smoke") and L[tr]:find("s11", 1, true), "rows:\n" .. table.concat(lines(buf), "\n"))
@@ -487,9 +446,9 @@ vim.cmd("normal zc")
 assert(vim.fn.foldclosed(pr + 1) == pr + 1, "zc did not close the agent fold")
 vim.wait(3500)
 ui.refresh_rail()
-local ar = rail.row(buf, "a:" .. tid)
+local ar = rail.row(buf, "a:" .. ak)
 assert(vim.fn.foldclosed(ar) == ar, "agent fold reopened after refresh")
-assert(rail.row(buf, "a:" .. tid) == vim.api.nvim_win_get_cursor(win)[1], "cursor left the agent node")
+assert(rail.row(buf, "a:" .. ak) == vim.api.nvim_win_get_cursor(win)[1], "cursor left the agent node")
 -- 4. kill → archive its threads, registry dead = true
 vim.fn.confirm = function() return 1 end
 rail.kill_agent(rail.node(buf, ar))
@@ -498,12 +457,12 @@ assert(registry.by_terminal("smoke", tid).dead == true, "registry not dead: " ..
 assert(vim.wait(10000, function() return h.by_terminal(tid) == nil end, 100), "agent still live")
 -- 5. X on a past (dead) agent archives its threads and never calls herdr.kill
 local ev = vim.json.encode({ kind = "message", id = "m1", ts = os.time(), title = "s11b", project = "smoke", text = "x",
-  session = { herdr = { terminal_id = tid } } })
+  session = { herdr = { terminal_id = tid, session_id = ak } } })
 vim.fn.writefile({ ev }, store.path("threads", "2026-01-01T00-00-00-s11b.jsonl"))
 local kills = {}
 h.kill = function(target) kills[#kills + 1] = tostring(target) end
 ui.refresh_rail()
-local dr = rail.row(buf, "a:" .. tid)
+local dr = rail.row(buf, "a:" .. ak)
 assert(dr and not rail.node(buf, dr).live, "dead agent row missing")
 vim.api.nvim_set_current_win(win)
 vim.api.nvim_win_set_cursor(win, { dr, 0 })
@@ -996,16 +955,16 @@ require("cockpit.inbox").setup()
 local ui, rail = require("cockpit.inbox.ui"), require("cockpit.inbox.rail")
 projects.save({ name = "s18", repos = { vim.env.NVIM_CFG } })
 projects.save({ name = "s18b", repos = { vim.env.NVIM_CFG } })
-registry.append("s18", { name = "s18-old", terminal_id = "term_d18", project = "s18" })
+registry.append("s18", { name = "s18-old", terminal_id = "term_d18", session = "S18D", project = "s18" })
 h.agents = function()
-  return { ["s18b-1"] = { name = "s18b-1", target = "s18b-1", project = "s18b", status = "idle", terminal_id = "term_l18", pane_id = "p18" } }
+  return { ["s18b-1"] = { name = "s18b-1", target = "s18b-1", project = "s18b", status = "idle", terminal_id = "term_l18", session_id = "S18L", pane_id = "p18" } }
 end
-local function seed(id, project, tid)
+local function seed(id, project, tid, sid)
   store.append(store.thread_file(id), { kind = "message", title = id, project = project, text = "x", ts = os.time(),
-    session = tid and { herdr = { terminal_id = tid } } or { agent = "a" } })
+    session = tid and { herdr = { terminal_id = tid, session_id = sid } } or { agent = "a" } })
 end
-seed("t18l", "s18b", "term_l18")
-seed("t18d", "s18", "term_d18")
+seed("t18l", "s18b", "term_l18", "S18L")
+seed("t18d", "s18", "term_d18", "S18D")
 seed("t18o", nil, nil)
 local spawned
 ui.spawn = function(p) spawned = p == nil and "PICK" or p end
@@ -1014,8 +973,8 @@ local buf = vim.fn.bufnr("cockpit://rail")
 local win = vim.fn.win_findbuf(buf)[1]
 vim.api.nvim_set_current_win(win)
 vim.cmd("normal! zR")
-local want = { header = "PICK", ["p:s18"] = "s18", ["past:s18"] = "s18", ["a:term_d18"] = "s18", ["t:t18d"] = "s18",
-  ["p:s18b"] = "s18b", ["a:term_l18"] = "s18b", ["t:t18l"] = "s18b", unassigned = "PICK", ["t:t18o"] = "PICK" }
+local want = { header = "PICK", ["p:s18"] = "s18", ["past:s18"] = "s18", ["a:S18D"] = "s18", ["t:t18d"] = "s18",
+  ["p:s18b"] = "s18b", ["a:S18L"] = "s18b", ["t:t18l"] = "s18b", unassigned = "PICK", ["t:t18o"] = "PICK" }
 for key, exp in pairs(want) do
   local row = rail.row(buf, key)
   assert(row, "no row " .. key .. ":\n" .. table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n"))

@@ -20,6 +20,63 @@ nlua() { T=$T nvim --headless -u NONE -i NONE --cmd "set rtp^=$NVIM_CFG" -l "$1"
 want() { [ $# -eq 0 ] || [ -z "${SECTIONS:-}" ] || [[ " $SECTIONS " == *" $1 "* ]]; }
 SECTIONS="$*"
 
+# --- 10: rail tree model — agents are Claude sessions ---------------------------------------------------
+if want 10; then
+  echo "10: tree model"
+  cat >"$T/t10.lua" <<'LUA'
+local tree = require("cockpit.inbox.tree")
+local function ag(name, tid, sid, project)
+  return { name = name, terminal_id = tid, session_id = sid, status = "idle", project = project }
+end
+-- live: A (SA), F fork of A (SF), L in seat tL running SL2 whose only record is legacy (no session)
+local agents = { A = ag("A", "tA", "SA", "p"), F = ag("F", "tF", "SF", "p"), L = ag("lilt-9", "tL", "SL2", "p") }
+local registry = { p = {
+  SA = { name = "A", project = "p", terminal_id = "tA", session = "SA", ts = 1 },
+  SF = { name = "F", project = "p", terminal_id = "tF", session = "SF", parent_session = "SA", parent_name = "A", fork = "continue", ts = 2 },
+  SD = { name = "D", project = "p", terminal_id = "tD", session = "SD", dead = true, ts = 0 },
+  tL = { name = "lilt-9", project = "p", terminal_id = "tL", ts = 3 },
+}, q = {} }
+local function th(id, sid, term, status, archived)
+  local owner = (sid or term) and { session_id = sid, herdr = term and { terminal_id = term } or nil } or nil
+  return { id = id, title = id, status = status, archived = archived, last_ts = 1, owner = owner }
+end
+local threads = {
+  th("t1", "SA", "tA", "needs_you"), th("t2", "SF", "tF", "read"), th("t3", "SD", "tD", "read", true),
+  th("t5", nil, "tL", "read"), -- legacy thread from an earlier session in seat tL
+  th("t4", nil, nil, "read"),
+}
+local function keys(nodes)
+  return vim.tbl_map(function(n) return n.kind == "thread" and n.thread.id or n.key end, nodes)
+end
+local function run(show, reg)
+  return tree.build({ show_archived = show, threads = threads, agents = agents, registry = reg or registry,
+    projects = { { name = "p" }, { name = "q" } } })
+end
+local nodes = run(false)
+assert(vim.deep_equal(keys(nodes), { "header", "p:p", "a:SA", "a:SF", "t2", "t1", "a:SL2",
+  "past:p", "a:SD", "a:old:tL", "t5", "p:q", "unassigned", "t4" }), vim.inspect(keys(nodes)))
+local by = {}
+for _, n in ipairs(nodes) do by[n.key] = n end
+assert(by["p:p"].counts.needs_you == 1, vim.inspect(by["p:p"].counts))
+assert(by["a:SF"].fork == "continue" and by["a:SF"].depth == 2 and by["a:SF"].live)
+assert(by["a:SL2"].name == "lilt-9" and by["a:SL2"].live, vim.inspect(by["a:SL2"]))  -- RF5: one row
+assert(#by["a:SL2"].children == 0, "earlier session's thread on the live agent")
+assert(by["a:old:tL"].name == "lilt-9 · earlier session" and not by["a:old:tL"].live)
+assert(by["a:SD"].live == false and by["a:SD"].depth == 2)
+assert(tree.owner_key(threads[1]) == "SA")
+assert(not vim.tbl_contains(keys(nodes), "t3"), "t3 shown without show_archived")
+assert(vim.tbl_contains(keys(run(true)), "t3"), "t3 missing with show_archived")
+-- m: a moved record wins over the workspace label
+local moved = vim.deepcopy(registry)
+moved.p.SA = vim.tbl_extend("force", moved.p.SA, { project = "q", moved = true })
+local mk = keys(run(false, moved))
+assert(vim.fn.index(mk, "a:SA") > vim.fn.index(mk, "p:q"), vim.inspect(mk))
+print("T10 OK")
+LUA
+  nlua "$T/t10.lua" 2>&1 | tee "$T/t10.out" | grep -q "T10 OK" || { cat "$T/t10.out"; fail "section 10"; }
+  ok "tree: agents keyed by session; legacy seat record = one live row; earlier session -> Past; forks by parent_session; move wins"
+fi
+
 # --- 19: tickets + project-for-dir by longest containing dir -------------------------------------------
 if want 19; then
   echo "19: tickets + project containment"

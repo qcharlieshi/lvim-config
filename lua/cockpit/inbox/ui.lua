@@ -557,7 +557,8 @@ function M.select(tid, focus, opts)
   local att = ck.last_att[tid]
   if
     not (
-      att and vim.tbl_contains(
+      att
+      and vim.tbl_contains(
         vim.tbl_map(function(a)
           return a.sha256
         end, t.deliverables),

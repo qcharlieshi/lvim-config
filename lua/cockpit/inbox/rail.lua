@@ -500,8 +500,8 @@ local function agent_of(buf, node)
   if node and node.kind == "agent" then
     return node
   elseif node and node.kind == "thread" then
-    local tid = require("cockpit.inbox.tree").owner_tid(node.thread)
-    return tid and M.node(buf, M.row(buf, "a:" .. tid))
+    local key = require("cockpit.inbox.tree").owner_key(node.thread)
+    return key and M.node(buf, M.row(buf, "a:" .. key))
   end
 end
 
@@ -530,6 +530,16 @@ local function open_thread(t)
   ui().select(t.id, nil, { dir = dir, open_diff = true })
 end
 
+-- does agent node own thread t: by Claude session; an "earlier session" node owns its seat's unattributed threads
+local function owns(node, t)
+  local key = require("cockpit.inbox.tree").owner_key(t)
+  if key then
+    return key == node.akey
+  end
+  local o = t.owner and t.owner.herdr
+  return node.akey == "old:" .. tostring(node.terminal_id) and o ~= nil and o.terminal_id == node.terminal_id
+end
+
 local function open(buf, node)
   if not node or node.kind == "header" then
     return
@@ -549,8 +559,7 @@ local function open(buf, node)
   end
   -- past agent: pick one of its archived threads
   local list = vim.tbl_filter(function(t)
-    local o = t.owner and t.owner.herdr
-    return t.archived and o and o.terminal_id == node.terminal_id
+    return t.archived and owns(node, t)
   end, store.threads())
   if #list == 0 then
     return vim.notify("cockpit: " .. node.name .. " has no archived threads")
@@ -581,14 +590,16 @@ function M.kill_agent(node)
   local name = node.name or (a and a.target) or tid
   local project = (node.rec and node.rec.project) or (a and a.project)
   local recs = project and registry.all(project) or {}
-  local rec = project and registry.by_terminal(project, tid)
-  local owner_tid = require("cockpit.inbox.tree").owner_tid
+  local rec = node.rec or (project and registry.by_terminal(project, tid))
+  local sid = node.session_id or (a and a.session_id)
+  local target = node.kind == "agent" and node or { akey = sid or ("term:" .. tostring(tid)), terminal_id = tid }
   local owned = vim.tbl_filter(function(t)
-    return not t.archived and owner_tid(t) == tid
+    return not t.archived and owns(target, t)
   end, store.threads())
   local forks = 0
   for _, r in pairs(recs) do
-    if r.parent_terminal == tid and herdr.by_terminal(r.terminal_id) then
+    local child = (sid and r.parent_session == sid) or (not r.parent_session and r.parent_terminal == tid)
+    if child and herdr.by_terminal(r.terminal_id) then
       forks = forks + 1
     end
   end
@@ -669,9 +680,22 @@ function M.cleanup()
     end
     return panes[p]
   end
+  local live_sessions = {}
+  for _, a in pairs(herdr.agents()) do
+    if a.session_id then
+      live_sessions[a.session_id] = true
+    end
+  end
+  for _, s in ipairs(require("cockpit.sessions").list()) do
+    live_sessions[s.session_id or ""] = true
+  end
   local cands = vim.tbl_filter(function(t)
     if t.archived then
       return false
+    end
+    local sid = store.owner_session(t)
+    if sid then -- its conversation ended, even if another one now runs in the same pane
+      return not live_sessions[sid]
     end
     local h = t.owner and t.owner.herdr
     if h then
