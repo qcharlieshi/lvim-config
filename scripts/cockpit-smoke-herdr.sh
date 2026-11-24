@@ -276,7 +276,8 @@ assert(vim.wait(10000, function() ui.refresh(); return has_s6() and agent_line()
 h.kill(name)
 assert(vim.wait(10000, function() return agent_line():find("✕", 1, true) ~= nil end, 200),
   "no offline glyph after kill: " .. agent_line())
-for lhs, desc in pairs({ s = "Spawn agent", X = "Kill agent", i = "Interrupt agent", gt = "Attach to agent", A = "Agent picker" }) do
+for lhs, desc in pairs({ s = "Spawn agent", X = "Kill agent", i = "Interrupt agent", gt = "Focus agent in herdr",
+  gT = "Attach to agent (tmux)", N = "Fresh conversation (new tab, same dir)", m = "Move agent to project", A = "Agent picker" }) do
   local m = vim.api.nvim_buf_call(rail, function() return vim.fn.maparg(lhs, "n", false, true) end)
   assert(m.desc == desc, lhs .. " desc " .. tostring(m.desc))
 end
@@ -284,7 +285,7 @@ assert(vim.fn.exists(":CockpitSpawn") == 2 and vim.fn.exists(":CockpitAgent") ==
 print("T6 OK")
 LUA
 CLI=$CLI nlua "$T/t6.lua" 2>&1 | tee "$T/t6.out" | grep -q "T6 OK" || { cat "$T/t6.out"; fail "section 6"; }
-ok "rail agent card shows ○ while idle, ✕ after kill; s X i gt A mapped; :CockpitSpawn/:CockpitAgent exist"
+ok "rail agent card shows ○ while idle, ✕ after kill; s X N m i gt gT A mapped; :CockpitSpawn/:CockpitAgent exist"
 [ "$LAST" -le 6 ] && exit 0
 
 # --- 7: review fixes — refresh timer lifecycle, own workspaces only, no tmux leak ------------------
