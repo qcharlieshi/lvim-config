@@ -767,13 +767,18 @@ function M.attach(buf)
     return function(a)
       local p = a.agent.project and require("cockpit.registry").all(a.agent.project)[a.agent.terminal_id]
       require("cockpit.profiles").pick(function(profile)
-        vim.ui.input({ prompt = "Fork prompt (optional): " }, function(text)
-          if text == nil then
+        vim.ui.input({ prompt = "Fork name (empty = auto): " }, function(agent)
+          if agent == nil then
             return -- cancelled
           end
-          require("cockpit.forks")[kind](a.agent, text, function()
-            ui().refresh()
-          end, profile)
+          vim.ui.input({ prompt = "Fork prompt (optional): " }, function(text)
+            if text == nil then
+              return -- cancelled
+            end
+            require("cockpit.forks")[kind](a.agent, text, function()
+              ui().refresh()
+            end, profile, agent)
+          end)
         end)
       end, p and p.profile)
     end
