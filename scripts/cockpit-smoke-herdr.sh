@@ -508,6 +508,8 @@ vim.cmd("normal! zv")
 vim.cmd("normal X")
 assert(store.thread("2026-01-01T00-00-00-s11b").archived, "past agent's thread not archived")
 assert(#kills == 0, "herdr.kill called for a dead agent: " .. table.concat(kills, ","))
+ui.refresh_rail()
+assert(rail.row(buf, "a:" .. tid) == nil, "killed agent with no threads still in past")
 print("T11 OK")
 LUA
 CLI=$CLI NVIM_CFG=$NVIM_CFG nlua "$T/t11.lua" 2>&1 | tee "$T/t11.out" | grep -q "T11 OK" || { cat "$T/t11.out"; fail "section 11"; }

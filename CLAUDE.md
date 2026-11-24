@@ -13,6 +13,7 @@ Highly customized LazyVim-based Neovim configuration with extensive UI customiza
 - `init.lua`: Entry point — Python path, terminal background sync (OSC 11/111), macOS codesign loader
 - `lua/config/`: options, autocmds, keymaps, performance, colors, lazy, codesign
 - `lua/lib/scoped-grep.lua`: Scoped grep module (grep within buffers, git changed files, or cross-branch diffs)
+- `lua/cockpit/` + `scripts/cockpit*`: Cockpit agent review inbox and herdr agent runtime; state lives in `~/.cockpit/` (modules, file schema and flows in docs/implementation-details.md → Cockpit)
 - `lua/plugins/`: Individual plugin configs (~35 active, 11 deprecated with `.deprecated` suffix)
 - `lua/dashboardAnimation.lua`: Triforce animation frames (Braille characters)
 - `lua/weather.lua`: wttr.in integration with async fetch

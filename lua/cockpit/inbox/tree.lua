@@ -237,8 +237,12 @@ function M.build(opts)
     for _, c in ipairs(children) do sum(counts, c.sub) end
     sum(totals, counts)
     local p = { kind = "project", key = "p:" .. n, name = n, counts = counts, children = children, urgency = tier(counts) }
-    if dead[n] then
-      local pn = { kind = "past", key = "past:" .. n, project = n, children = nest(dead[n], ctx, true) }
+    -- X marks rec.dead: dismissed from past once it owns no visible threads (g. brings it back)
+    local shown = vim.tbl_filter(function(i)
+      return opts.show_archived or not i.rec.dead or by_owner[i.tid] ~= nil
+    end, dead[n] or {})
+    if #shown > 0 then
+      local pn = { kind = "past", key = "past:" .. n, project = n, children = nest(shown, ctx, true) }
       table.sort(pn.children, function(a, b) return a.recent > b.recent end)
       p.past = pn
     end
