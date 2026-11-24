@@ -42,7 +42,8 @@ function M.save(p)
   local repos = vim.tbl_map(function(r)
     return r:sub(1, #home) == home and ("~" .. r:sub(#home + 1)) or r
   end, p.repos)
-  local data = { name = p.name, repos = repos, created = p.created or os.date("%Y-%m-%dT%H:%M:%S%z") }
+  local data =
+    { name = p.name, repos = repos, ticket = p.ticket, created = p.created or os.date("%Y-%m-%dT%H:%M:%S%z") }
   vim.fn.writefile({ vim.json.encode(data) }, file(p.name))
   -- rebuild repos/ symlinks (basename collision -> <basename>-2)
   for _, l in ipairs(vim.fn.glob(root .. "/repos/*", false, true)) do
@@ -102,7 +103,8 @@ function M.link_thread(name, tid)
 end
 
 local function git_roots()
-  local cmd = { "fd", "-H", "-t", "d", "--max-depth", "4", "^\\.git$", vim.fn.expand("~/dev"), vim.fn.expand("~/.config") }
+  local cmd =
+    { "fd", "-H", "-t", "d", "--max-depth", "4", "^\\.git$", vim.fn.expand("~/dev"), vim.fn.expand("~/.config") }
   local out = vim.system(cmd, { text = true }):wait().stdout or ""
   local roots = {}
   for line in out:gmatch("[^\n]+") do
@@ -159,36 +161,34 @@ local function real(p)
   return vim.uv.fs_realpath(p) or p
 end
 
--- The project for the repo containing `dir` (a worktree counts as its main repo); creates a
--- one-repo project named after the repo when none has it. Outside git, `dir` itself is the "repo"
--- (e.g. ~/dev/lilt, the org root holding many repos). Returns the name; nil only for $HOME and /,
--- which would make a project of everything.
-function M.for_dir(dir)
-  local top = git(dir, "--show-toplevel")
-  local repo
-  if top then
-    local common = git(dir, "--path-format=absolute", "--git-common-dir")
-    repo = (common and vim.fs.basename(common) == ".git") and vim.fs.dirname(common) or top
-  else
-    repo = real(vim.fs.normalize(dir))
-    if repo == "/" or repo == real(vim.fn.expand("~")) then
-      return nil
-    end
-  end
-  local want = { [real(top or repo)] = true, [real(repo)] = true }
-  local any
+-- The project with the most specific dir equal to or containing `dir` (longest dir wins), or nil.
+-- Never creates one.
+function M.containing(dir)
+  dir = real(vim.fs.normalize(dir))
+  local best, len = nil, -1
   for _, p in ipairs(M.list()) do
-    for i, r in ipairs(p.repos) do
-      if want[real(r)] then
-        if i == 1 then
-          return p.name -- primary match wins
-        end
-        any = any or p.name
+    for _, r in ipairs(p.repos) do
+      r = real(r)
+      if (dir == r or dir:sub(1, #r + 1) == r .. "/") and #r > len then
+        best, len = p.name, #r
       end
     end
   end
-  if any then
-    return any
+  return best
+end
+
+-- The project containing `dir`; else creates a one-dir project named after the repo (a worktree's own
+-- toplevel, so it can become its own ticket project). Outside git, `dir` itself is the dir (e.g.
+-- ~/dev/lilt, the org root holding many repos). Returns the name; nil only for $HOME and /, which
+-- would make a project of everything.
+function M.for_dir(dir)
+  local found = M.containing(dir)
+  if found then
+    return found
+  end
+  local repo = git(dir, "--show-toplevel") or real(vim.fs.normalize(dir))
+  if repo == "/" or repo == real(vim.fn.expand("~")) then
+    return nil
   end
   local base = vim.fs.basename(repo):lower():gsub("[^a-z0-9_-]", "-"):gsub("^[^a-z]+", "")
   base = (base == "" and "repo" or base):sub(1, 28)

@@ -5,11 +5,13 @@
 # Usage: bash scripts/cockpit-smoke-herdr.sh [last-section]   (default: all)
 set -euo pipefail
 
-NVIM_CFG=$(cd "$(dirname "$0")/.." && pwd)
+export NVIM_CFG=$(cd "$(dirname "$0")/.." && pwd)
 CLI="$NVIM_CFG/scripts/cockpit_inbox.py"
 LAST=${1:-99}
 T=$(mktemp -d /tmp/ck.XXXX) # short path: macOS unix sockets max 104 chars
 export COCKPIT_INBOX_DIR=$T/inbox COCKPIT_PROJECTS_DIR=$T/projects COCKPIT_HERDR_SESSION=ckspike
+# run from inside a herdr pane (an agent), the CLI would talk to that server, not ckspike
+unset HERDR_SOCKET_PATH HERDR_ENV HERDR_PANE_ID HERDR_TAB_ID HERDR_WORKSPACE_ID
 H=(herdr --session ckspike)
 
 cleanup() {
@@ -19,7 +21,7 @@ cleanup() {
   herdr session delete ckspike >/dev/null 2>&1 || true
   herdr session delete ckdead >/dev/null 2>&1 || true
   # section 12 forks smoke-* agents into worktrees of the real repos: leave no worktree or branch behind
-  for repo in "$NVIM_CFG" ~/dev/genzed; do
+  for repo in "$NVIM_CFG" ~/dev/profile_website; do
     for wt in "$repo"/.worktrees/fork-smoke-*; do
       if [ -e "$wt" ]; then git -C "$repo" worktree remove --force "$wt" >/dev/null 2>&1 || true; fi
     done
@@ -116,12 +118,12 @@ ok "cache sees smoke-1 idle with terminal_id; CockpitAgents fired; ensure() star
 echo "3: projects"
 cat >"$T/t3.lua" <<'LUA'
 local projects = require("cockpit.projects")
-local picks = { vim.fn.expand("~/.config/nvim"), vim.fn.expand("~/dev/genzed"), "✓ done" }
+local picks = { vim.env.NVIM_CFG, vim.fn.expand("~/dev/profile_website"), "✓ done" }
 vim.ui.input = function(_, cb) cb("smoke") end
 vim.ui.select = function(_, _, cb) cb(table.remove(picks, 1)) end
 projects.new()
 local p = assert(projects.get("smoke"), "project smoke missing")
-assert(vim.deep_equal(p.repos, { vim.fn.expand("~/.config/nvim"), vim.fn.expand("~/dev/genzed") }), vim.inspect(p.repos))
+assert(vim.deep_equal(p.repos, { vim.env.NVIM_CFG, vim.fn.expand("~/dev/profile_website") }), vim.inspect(p.repos))
 assert(vim.fn.filereadable(vim.env.COCKPIT_PROJECTS_DIR .. "/smoke/project.json") == 1, "smoke/project.json not written")
 assert(#projects.list() == 1 and projects.list()[1].name == "smoke", "list")
 print("T3 OK")
@@ -133,7 +135,7 @@ ok "projects.new() writes smoke/project.json with primary + extra repo"
 # --- 4: agent actions — spawn / prompt / interrupt / kill ---------------------------------------
 echo "4: spawn/prompt/interrupt/kill"
 mkdir -p "$T/untrusted" && git -C "$T/untrusted" init -q
-# A pre-approved permission guarantees Claude's folder-trust dialog (matches the genzed case)
+# A pre-approved permission guarantees Claude's folder-trust dialog (matches an untrusted extra repo)
 mkdir -p "$T/untrusted/.claude" && echo '{"permissions":{"allow":["Bash(true)"]}}' >"$T/untrusted/.claude/settings.local.json"
 cat >"$T/t4.lua" <<'LUA'
 local h, projects = require("cockpit.herdr"), require("cockpit.projects")
@@ -324,16 +326,16 @@ ok "timer on while open/off after close; spawn uses its own ck/ workspace; no tm
 # --- 8: project directories — migration from flat json, repo symlinks, thread links ---------------
 echo "8: project dirs"
 mkdir -p "$T/projects"
-echo '{"name":"old","repos":["~/.config/nvim","~/dev/genzed"],"created":"2026-01-01T00:00:00+0000"}' >"$T/projects/old.json"
+echo '{"name":"old","repos":["~/.config/nvim","~/dev/profile_website"],"created":"2026-01-01T00:00:00+0000"}' >"$T/projects/old.json"
 cat >"$T/t8.lua" <<'LUA'
 local projects = require("cockpit.projects")
 local dir = vim.env.COCKPIT_PROJECTS_DIR
 local p = assert(projects.get("old"), "old missing")
-assert(vim.deep_equal(p.repos, { vim.fn.expand("~/.config/nvim"), vim.fn.expand("~/dev/genzed") }), vim.inspect(p.repos))
+assert(vim.deep_equal(p.repos, { vim.fn.expand("~/.config/nvim"), vim.fn.expand("~/dev/profile_website") }), vim.inspect(p.repos))
 assert(vim.fn.filereadable(dir .. "/old/project.json") == 1, "project.json not written")
 assert(vim.fn.filereadable(dir .. "/old.json") == 0, "old.json not removed")
 assert(projects.root("old") == dir .. "/old", projects.root("old"))
-for base, repo in pairs({ nvim = "~/.config/nvim", genzed = "~/dev/genzed" }) do
+for base, repo in pairs({ nvim = "~/.config/nvim", profile_website = "~/dev/profile_website" }) do
   local l = dir .. "/old/repos/" .. base
   assert(vim.uv.fs_lstat(l).type == "link", base .. " not a symlink")
   assert(vim.uv.fs_realpath(l) == vim.uv.fs_realpath(vim.fn.expand(repo)), base .. " wrong target")
@@ -862,6 +864,7 @@ ok "Stop hook: herdr agent with an attach marker follows its tmux pane (watched 
 # --- 17: `claude` via herdr — cockpit-spawn.lua + launcher bypass ---------------------------------
 echo "17: claude via herdr"
 P17=$T/projects17 # fresh projects dir: no project holds ~/.config/nvim yet
+PN17=$(basename "$NVIM_CFG") # the auto-created project: nvim, or the worktree dir name when run from one
 spawn17() {
   TMUX=dummy COCKPIT_PROJECTS_DIR=$P17 nvim --headless -u NONE -i NONE --cmd "set rtp^=$NVIM_CFG" \
     -l "$NVIM_CFG/scripts/cockpit-spawn.lua" -- "$NVIM_CFG" </dev/null 2>"$T/s17.err"
@@ -873,14 +876,14 @@ WS17=$(jget 'd["result"]["agent"]["workspace_id"]' <<<"$J17")
 "${H[@]}" workspace list | python3 -c '
 import sys, json
 ws = {w["workspace_id"]: w["label"] for w in json.load(sys.stdin)["result"]["workspaces"]}
-assert ws.get(sys.argv[1]) == "ck/nvim", ws
-' "$WS17" || fail "$N17 not in a ck/nvim workspace"
-[ -f "$P17/nvim/project.json" ] || fail "project nvim not created"
-grep -q "\"$N17\"" "$P17/nvim/agents.jsonl" || fail "$N17 not in the nvim registry"
+assert ws.get(sys.argv[1]) == "ck/" + sys.argv[2], ws
+' "$WS17" "$PN17" || fail "$N17 not in a ck/nvim workspace"
+[ -f "$P17/$PN17/project.json" ] || fail "project nvim not created"
+grep -q "\"$N17\"" "$P17/$PN17/agents.jsonl" || fail "$N17 not in the nvim registry"
 read -r N17B PANE17B _ <<<"$(spawn17)" || true
 [ -n "$N17B" ] && [ "$N17B" != "$N17" ] || { cat "$T/s17.err"; fail "second spawn: '$N17B'"; }
-[ "$(ls "$P17")" = "nvim" ] || fail "second run made another project: $(ls "$P17")"
-[ "$(wc -l <"$P17/nvim/agents.jsonl")" -ge 2 ] || fail "second agent not in the nvim registry"
+[ "$(ls "$P17")" = "$PN17" ] || fail "second run made another project: $(ls "$P17")"
+[ "$(wc -l <"$P17/$PN17/agents.jsonl")" -ge 2 ] || fail "second agent not in the nvim registry"
 "${H[@]}" pane close "$PANE17" >/dev/null
 "${H[@]}" pane close "$PANE17B" >/dev/null
 ok "cockpit-spawn.lua starts $N17 then $N17B in ck/nvim; project nvim created once"

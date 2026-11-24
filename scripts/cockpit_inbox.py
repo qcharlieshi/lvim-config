@@ -103,11 +103,33 @@ def git(*args, cwd=None, ok_codes=(0,)):
     return res.stdout
 
 
+PROJECTS = Path(os.environ.get("COCKPIT_PROJECTS_DIR", "~/.cockpit/projects")).expanduser()
+
+
+def project_containing(cwd):
+    """The defined project whose dir is cwd or contains it; the longest (most specific) dir wins."""
+    here = os.path.realpath(cwd)
+    best, length = None, -1
+    for f in PROJECTS.glob("*/project.json"):
+        try:
+            p = json.loads(f.read_text())
+        except (OSError, ValueError):
+            continue
+        for r in p.get("repos") or []:
+            r = os.path.realpath(os.path.expanduser(r))
+            if (here == r or here.startswith(r + "/")) and len(r) > length:
+                best, length = p.get("name") or f.parent.name, len(r)
+    return best
+
+
 def project_of(cwd):
-    # Agents spawned by cockpit carry their project in the pane env (herdr workspace.create/pane.split env)
+    # Agents spawned by cockpit carry their project in the pane env (herdr workspace.create/tab.create env)
     if os.environ.get("COCKPIT_PROJECT"):
         return os.environ["COCKPIT_PROJECT"]
-    # Common dir, not toplevel: every worktree of a repo lands in the same project
+    found = project_containing(cwd)
+    if found:
+        return found
+    # No defined project: the repo's common dir, so every worktree of a repo groups together
     try:
         common = git("rev-parse", "--path-format=absolute", "--git-common-dir", cwd=cwd).strip()
         return Path(common).parent.name
