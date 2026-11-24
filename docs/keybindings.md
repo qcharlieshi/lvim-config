@@ -21,7 +21,7 @@
 - Deliverables are the only listed buffers (lualine tabline shows bare file names); the rail/thread/composer buffers are unlisted. `<leader>ff` in `~/.cockpit/projects/*` follows the `repos/` symlinks
 - Thread: `A` approve (with notes/edits if any) · `N` +notes · `C` changes · `X` reject · `r` reply · `1`–`9` pick option · `<CR>` open file / pick · `]f`/`[f` files · `q` rail · composer `:w` sends
 - Agents (herdr, `lua/cockpit/herdr.lua`): rail `s` spawn into a project · `A` agent picker (attach/interrupt/kill/prompt) · on a run: `X` kill its agent (confirm) · `i` interrupt · `gt` attach (tmux window). Rail glyph = the run's agent: `◐` working · `⚠` blocked · `○` idle · `✕` offline
-- `:CockpitSpawn [project]` · `:CockpitAgent` · `:CockpitProject new|edit [name]` (projects: `~/.cockpit/projects/<name>.json`, first repo = primary, rest = `--add-dir`)
+- `:CockpitSpawn [project]` · `:CockpitAgent` · `:CockpitProject new|edit [name]` (projects: `~/.cockpit/projects/<name>/project.json`, first repo = primary, rest = `--add-dir`)
 - `<leader>kb` / `:InboxBoard`: manual card board (legacy)
 
 **Diagnostics:**

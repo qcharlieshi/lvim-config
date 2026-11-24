@@ -1302,10 +1302,12 @@ function M.spawn(project)
   local projects, herdr = require("cockpit.projects"), require("cockpit.herdr")
   local function go(name)
     local function ask(dir)
-      vim.ui.input({ prompt = "First prompt (optional): " }, function(text)
-        if text ~= nil then
-          herdr.spawn(name, text, nil, { dir = dir })
-        end
+      require("cockpit.profiles").pick(function(profile)
+        vim.ui.input({ prompt = "First prompt (optional): " }, function(text)
+          if text ~= nil then
+            herdr.spawn(name, text, nil, { dir = dir, profile = profile })
+          end
+        end)
       end)
     end
     -- a project with several dirs (worktrees): pick the one this agent works in (its tab's cwd)

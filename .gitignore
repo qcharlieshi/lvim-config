@@ -10,3 +10,4 @@ data
 features/
 scripts/__pycache__/
 .superpowers/
+tests/**/__pycache__/

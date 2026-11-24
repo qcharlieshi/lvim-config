@@ -1,6 +1,5 @@
--- cockpit ↔ herdr: the only place nvim talks to the agent runtime (rented and disposable, see
--- docs/superpowers/specs/2026-11-10-cockpit-herdr-runtime-design.md). Speaks herdr's NDJSON
--- socket API directly. Every call names its target explicitly — never --current (herdr #2900).
+-- cockpit ↔ herdr: the only place nvim talks to the agent runtime (rented and disposable).
+-- Speaks herdr's NDJSON socket API directly. Every call names its target explicitly — never --current (herdr #2900).
 local M = {}
 
 local uv = vim.uv
@@ -498,7 +497,8 @@ end
 
 -- Start a Claude agent in `project`, in its own tab; cb(err, name, pane_id, tab_id).
 -- opts.dir (alias opts.cwd): the tab's cwd, default the primary dir (ui.spawn asks when a project has several).
--- opts.args: extra claude args (appended). opts.interactive = false: no
+-- opts.args: extra claude args (appended). opts.profile: cockpit.profiles name (default "default"), recorded in
+-- the registry. opts.interactive = false: no
 -- attach prompt when blocked at startup (cb still gets the name). opts.env: base pane env (COCKPIT_* win).
 -- opts.on_pane(pane_id): called as soon as the pane exists (the launcher closes it if it gives up).
 function M.spawn(project, prompt, cb, opts)
@@ -532,8 +532,10 @@ function M.spawn(project, prompt, cb, opts)
         vim.list_extend(args, { "--add-dir", r })
       end
     end
+    vim.list_extend(args, require("cockpit.profiles").args(opts.profile))
     vim.list_extend(args, opts.args or {})
-    local rec = { project = project, dir = dir, tab_id = tab_id, pane_id = pane_id }
+    local rec =
+      { project = project, dir = dir, tab_id = tab_id, pane_id = pane_id, profile = opts.profile or "default" }
     M.start_in(pane_id, name, args, rec, function(serr, started)
       if not serr and prompt and prompt ~= "" then
         M.request("agent.prompt", { target = started, text = prompt }, function() end)
@@ -578,15 +580,15 @@ function M.attach(target)
   end
 end
 
--- Submit text as a prompt; returns a one-line status for the user.
+-- Submit text as a prompt; returns a one-line status for the user, and whether herdr accepted it.
 function M.prompt(target, text)
   local err = M.request("agent.prompt", { target = target, text = text })
   if not err then
-    return "delivered to " .. target
+    return "delivered to " .. target, true
   elseif err.code == "agent_blocked" then
-    return target .. " is at a dialog — attach to answer"
+    return target .. " is at a dialog — attach to answer", false
   end
-  return target .. ": " .. (err.message or err.code)
+  return target .. ": " .. (err.message or err.code), false
 end
 
 function M.by_terminal(terminal_id)

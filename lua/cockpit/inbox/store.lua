@@ -22,22 +22,60 @@ function M.path(...)
   return table.concat({ M.root, ... }, "/")
 end
 
+-- Thread ids, blob shas and session ids become file names (shared rule with cockpit_inbox.py's valid_id)
+function M.valid_id(id)
+  return type(id) == "string" and id:match("^[%w_-]+$") ~= nil
+end
+
+local function checked(id)
+  if not M.valid_id(id) then
+    error(("cockpit: invalid id %q"):format(tostring(id)), 2)
+  end
+  return id
+end
+
+-- Complete events only (same rules as cockpit_inbox.py): a last line without its newline is a write still in
+-- flight, a bad line is skipped, an event from an unknown schema version is ignored
 local function read_jsonl(file)
-  local f = io.open(file, "r")
+  local f = io.open(file, "rb")
   if not f then
     return {}
   end
+  local data = f:read("a") or ""
+  f:close()
   local out = {}
-  for line in f:lines() do
-    if line ~= "" then
-      local ok, ev = pcall(vim.json.decode, line, { luanil = { object = true, array = true } })
-      if ok then
-        out[#out + 1] = ev
-      end
+  for line in data:gmatch("([^\n]*)\n") do
+    local ok, ev = pcall(vim.json.decode, line, { luanil = { object = true, array = true } })
+    if ok and type(ev) == "table" and (ev.v == nil or ev.v == 1) then
+      out[#out + 1] = ev
     end
   end
-  f:close()
   return out
+end
+M.read_jsonl = read_jsonl
+
+-- One write() on an O_APPEND fd: a concurrent reader or writer never sees half an event (stdio may split it)
+local function append_line(file, line)
+  vim.fn.mkdir(vim.fs.dirname(file), "p")
+  local fd = assert(vim.uv.fs_open(file, "a", 420))
+  local n, err = vim.uv.fs_write(fd, line)
+  vim.uv.fs_close(fd)
+  assert(n == #line, err or ("short write to " .. file))
+end
+
+-- Content-addressed; renamed into place so a reader never sees half a blob
+function M.put_blob(data)
+  local sha = vim.fn.sha256(data)
+  local file = M.path("blobs", sha)
+  if not vim.uv.fs_stat(file) then
+    vim.fn.mkdir(M.path("blobs"), "p")
+    local tmp = M.path("blobs", "." .. sha .. "." .. vim.uv.hrtime())
+    local fd = assert(vim.uv.fs_open(tmp, "w", 420))
+    vim.uv.fs_write(fd, data)
+    vim.uv.fs_close(fd)
+    assert(vim.uv.fs_rename(tmp, file))
+  end
+  return sha
 end
 
 function M.append(file, ev)
@@ -47,15 +85,31 @@ function M.append(file, ev)
     ts = os.time(),
     id = vim.fn.sha256(tostring(vim.uv.hrtime()) .. math.random()):sub(1, 12),
   })
-  vim.fn.mkdir(vim.fs.dirname(file), "p")
-  local f = assert(io.open(file, "a"))
-  f:write(vim.json.encode(ev) .. "\n")
-  f:close()
+  if ev.kind == "reply" and ev.edits then
+    -- Patches can be whole files: keep the reply line small, the agent reads them from blobs/ by sha
+    ev.edits = vim.tbl_map(function(ed)
+      if not ed.patch then
+        return ed
+      end
+      local out = vim.tbl_extend("force", ed, { patch_sha256 = M.put_blob(ed.patch) })
+      out.patch = nil
+      return out
+    end, ev.edits)
+  end
+  append_line(file, vim.json.encode(ev) .. "\n")
   return ev
 end
 
+-- A reply edit's patch: inline (older replies) or from blobs/ by sha
+function M.edit_patch(ed)
+  if ed.patch then
+    return ed.patch
+  end
+  return table.concat(M.blob(ed.patch_sha256), "\n") .. "\n"
+end
+
 function M.thread_file(id)
-  return M.path("threads", id .. ".jsonl")
+  return M.path("threads", checked(id) .. ".jsonl")
 end
 
 function M.is_blocking(label)
@@ -69,13 +123,20 @@ function M.owner_session(t)
 end
 
 function M.thread(id)
+  if not M.valid_id(id) then
+    return nil
+  end
   local events = read_jsonl(M.thread_file(id))
   if #events == 0 then
     return nil
   end
-  local t = { id = id, messages = {}, sent = {}, read_ts = 0, archived = false, last_ts = 0 }
+  -- read_seq: index of the event that marked the thread read. Read/unread compares log order, not ts: a message
+  -- landing in the same second the thread was opened is still unread
+  local t = { id = id, messages = {}, sent = {}, read_ts = 0, read_seq = 0, archived = false, last_ts = 0 }
   local notes, deleted, sent_ids, rounds = {}, {}, {}, {}
-  for _, e in ipairs(events) do
+  local acked, attempts = {}, {} -- reply id -> true / delivery events naming it
+  for i, e in ipairs(events) do
+    e.seq = i
     if e.kind == "message" then
       t.title = t.title or e.title
       t.project = t.project or e.project
@@ -107,9 +168,32 @@ function M.thread(id)
     elseif e.kind == "state" then
       if e.read ~= nil then
         t.read_ts = e.read and e.ts or 0
+        t.read_seq = e.read and i or 0
       end
       if e.archived ~= nil then
         t.archived = e.archived
+      end
+    elseif e.kind == "ack" and e.reply then
+      acked[e.reply] = true
+    elseif e.kind == "delivery" then
+      for _, rid in ipairs(e.replies or {}) do
+        attempts[rid] = attempts[rid] or {}
+        table.insert(attempts[rid], e)
+      end
+    end
+  end
+  -- Outbox (delivery.lua): replies the agent hasn't acked, each with its delivery attempts; undelivered = none
+  -- of them reached the agent yet
+  t.unacked, t.undelivered = {}, {}
+  for _, m in ipairs(t.messages) do
+    if m.kind == "reply" and not acked[m.id] then
+      m.attempts = attempts[m.id] or {}
+      m.delivered = vim.iter(m.attempts):any(function(d)
+        return d.ok == true
+      end)
+      t.unacked[#t.unacked + 1] = m
+      if not m.delivered then
+        t.undelivered[#t.undelivered + 1] = m
       end
     end
   end
@@ -127,6 +211,7 @@ function M.thread(id)
   end
 
   local last = t.messages[#t.messages]
+  t.unread = last ~= nil and last.kind == "message" and last.seq > t.read_seq
   t.agent = t.session and t.session.agent or "agent"
   t.open_questions = {}
   if last and last.kind == "message" then
@@ -147,7 +232,7 @@ function M.thread(id)
     t.status = "replied"
   elseif #t.open_questions > 0 or last.gate then
     t.status = "needs_you"
-  elseif last.ts > t.read_ts then
+  elseif t.unread then
     t.status = "unread"
   else
     t.status = "read"
@@ -209,13 +294,13 @@ end
 ---------------------------------------------------------------------------
 
 function M.edit_file(tid, att)
-  return M.path("edits", tid, att.sha256)
+  return M.path("edits", checked(tid), checked(att.sha256))
 end
 
 -- Codediff deliverables are reviewed as two directories: base/ (before) vs review/ (the
 -- agent's version, editable); sent/ keeps the agent's version pristine to diff edits against.
 function M.review_root(tid, att)
-  return M.path("review", tid, att.sha256:sub(1, 12))
+  return M.path("review", checked(tid), checked(att.sha256):sub(1, 12))
 end
 
 function M.patch_paths(lines)
@@ -293,7 +378,7 @@ function M.threads()
 end
 
 function M.blob(sha)
-  local file = M.path("blobs", sha)
+  local file = M.valid_id(sha) and M.path("blobs", sha) or ""
   return vim.fn.filereadable(file) == 1 and vim.fn.readfile(file) or { "(blob missing: " .. sha .. ")" }
 end
 
@@ -331,42 +416,9 @@ function M.save_card(card)
   return M.append(M.path("cards.jsonl"), snap)
 end
 
--- The CLI touches waiting/<id> every 2s while an agent blocks in `wait`
-function M.agent_waiting(id)
-  local stat = vim.uv.fs_stat(M.path("waiting", id))
-  return stat ~= nil and os.time() - stat.mtime.sec < 10
-end
-
--- Blocked agents read the reply themselves; otherwise nudge the agent's tmux pane with a
--- one-line trigger (multi-line pastes would submit early) — Claude queues it if mid-turn.
+-- Delivery lives in delivery.lua (store = events only); kept for ui.lua's send()
 function M.deliver(t)
-  if M.agent_waiting(t.id) then
-    return "agent was waiting and has it"
-  end
-  local msg = ("Inbox reply on thread %s. Run: python3 %s read %s --new"):format(t.id, M.cli, t.id)
-  -- herdr agents: join on terminal_id (pane ids restart after a server restart), deliver with agent.prompt
-  local hid = t.session and t.session.herdr
-  if hid then
-    local herdr = require("cockpit.herdr")
-    local agent = herdr.by_terminal(hid.terminal_id)
-    if agent then
-      return herdr.prompt(agent.target, msg)
-    end
-    -- never fall through to tmux: a tmux_pane on a herdr thread is leaked env, i.e. someone else's pane
-    return "agent offline; reply kept for the next reader"
-  end
-  local pane = t.session and t.session.tmux_pane
-  if not pane then
-    return "no agent pane; it can run `read " .. t.id .. " --new`"
-  end
-  -- list-panes, not display-message: display -t falls back to the current pane when the target is gone
-  local panes = vim.system({ "tmux", "list-panes", "-a", "-F", "#{pane_id}" }, { text = true }):wait().stdout or ""
-  if not vim.tbl_contains(vim.split(panes, "\n", { trimempty = true }), pane) then
-    return "agent pane " .. pane .. " is gone; reply kept for the next reader"
-  end
-  vim.system({ "tmux", "send-keys", "-t", pane, "-l", msg }):wait()
-  vim.system({ "tmux", "send-keys", "-t", pane, "Enter" }):wait()
-  return "delivered to pane " .. pane
+  return require("cockpit.inbox.delivery").deliver(t)
 end
 
 -- One line per steer: the why-tagged dataset the harness-improvement loop mines later
@@ -381,7 +433,11 @@ function M.ledger(t, reply)
   for _, ed in ipairs(reply.edits or {}) do
     M.append(
       file,
-      vim.tbl_extend("force", base, { kind = "edit", verdict = reply.verdict, sha256 = ed.sha256, patch = ed.patch })
+      vim.tbl_extend(
+        "force",
+        base,
+        { kind = "edit", verdict = reply.verdict, sha256 = ed.sha256, patch = M.edit_patch(ed) }
+      )
     )
   end
   for _, n in ipairs(reply.annotations or {}) do

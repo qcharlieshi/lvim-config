@@ -1,0 +1,8 @@
+{"v": 1, "at": "2026-01-01T00:00:00+00:00", "ts": 100, "id": "m1", "kind": "message", "title": "Outbox", "project": "p", "text": "x", "attachments": [], "questions": [], "session": {"agent": "claude", "herdr": {"terminal_id": "term-a"}, "cwd": "/tmp/repo", "pid": 1}, "from": "agent"}
+{"v": 1, "at": "2026-01-01T00:00:00+00:00", "ts": 110, "id": "r1", "kind": "reply", "text": "one", "answers": [], "annotations": [], "from": "human"}
+{"v": 1, "at": "2026-01-01T00:00:00+00:00", "ts": 110, "id": "d1", "kind": "delivery", "replies": ["r1"], "ok": false, "detail": "agent offline"}
+{"v": 1, "at": "2026-01-01T00:00:00+00:00", "ts": 120, "id": "r2", "kind": "reply", "text": "two", "answers": [], "annotations": [], "from": "human"}
+{"v": 1, "at": "2026-01-01T00:00:00+00:00", "ts": 120, "id": "d2", "kind": "delivery", "replies": ["r2"], "ok": true, "via": "herdr", "target": "agent-1", "detail": "delivered to agent-1"}
+{"v": 1, "at": "2026-01-01T00:00:00+00:00", "ts": 130, "id": "r3", "kind": "reply", "text": "three", "answers": [], "annotations": [], "from": "human"}
+{"v": 1, "at": "2026-01-01T00:00:00+00:00", "ts": 131, "id": "d3", "kind": "delivery", "replies": ["r3"], "ok": true, "via": "herdr", "target": "agent-1", "detail": "delivered to agent-1"}
+{"v": 1, "at": "2026-01-01T00:00:00+00:00", "ts": 140, "id": "k3", "kind": "ack", "reply": "r3"}

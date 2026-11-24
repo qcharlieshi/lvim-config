@@ -219,8 +219,11 @@ local f = vim.fn.glob(store.path("threads", "*-s5.jsonl"), false, true)[1]
 assert(f, "agent did not post s5")
 local t = store.thread(vim.fn.fnamemodify(f, ":t:r"))
 assert(t.session.herdr and t.session.herdr.terminal_id, "s5 has no herdr identity")
+-- deliver() sends unacked replies only (outbox): reply first
+store.append(store.thread_file(t.id), { kind = "reply", from = "human", text = "smoke reply" })
 local how = store.deliver(t)
 assert(how:find("^delivered"), "deliver returned: " .. how)
+assert(#store.thread(t.id).undelivered == 0, "delivered reply still undelivered")
 assert(vim.wait(180000, function()
   local _, r = h.request("agent.read", { target = name, source = "recent_unwrapped", lines = 80 })
   return r and vim.inspect(r):find("Inbox reply on thread", 1, true) ~= nil
@@ -228,8 +231,10 @@ end, 1000), "reply never reached the agent")
 -- Review Focus 3: killed agent -> offline, never another pane
 h.kill(name)
 assert(vim.wait(10000, function() return h.by_terminal(t.session.herdr.terminal_id) == nil end), "still cached")
+store.append(store.thread_file(t.id), { kind = "reply", from = "human", text = "after kill" })
 local how2 = store.deliver(t)
 assert(how2:find("offline", 1, true), "deliver after kill returned: " .. how2)
+assert(#store.thread(t.id).undelivered == 1, "reply to a dead agent not queued")
 print("T5 OK")
 LUA
 CLI=$CLI nlua "$T/t5.lua" 2>&1 | tee "$T/t5.out" | grep -q "T5 OK" || { cat "$T/t5.out"; fail "section 5"; }
@@ -315,8 +320,8 @@ assert(ws.workspace.label == "ck/smoke", "label " .. tostring(ws.workspace.label
 assert(vim.wait(5000, function() return (h.agents()[name] or {}).project == "smoke" end), "project not resolved from ck/ label")
 h.kill(name)
 -- fix 3: a herdr-posted thread whose agent is gone never falls through to a tmux pane
-local how = store.deliver({ id = "x", session = { herdr = { terminal_id = "term_gone" }, tmux_pane = "%999999" } })
-assert(how:find("offline", 1, true), "deliver fell through: " .. how)
+local route, how = require("cockpit.inbox.delivery").resolve({ id = "x", session = { herdr = { terminal_id = "term_gone" }, tmux_pane = "%999999" } })
+assert(route == nil and how:find("offline", 1, true), "deliver fell through: " .. vim.inspect(route or how))
 print("T7 OK")
 LUA
 HW=$HW nlua "$T/t7.lua" 2>&1 | tee "$T/t7.out" | grep -q "T7 OK" || { cat "$T/t7.out"; fail "section 7"; }
@@ -470,6 +475,8 @@ vim.cmd("normal! zv")
 vim.cmd("normal X")
 assert(store.thread("2026-01-01T00-00-00-s11b").archived, "past agent's thread not archived")
 assert(#kills == 0, "herdr.kill called for a dead agent: " .. table.concat(kills, ","))
+ui.refresh_rail()
+assert(rail.row(buf, "a:" .. tid) == nil, "killed agent with no threads still in past")
 print("T11 OK")
 LUA
 CLI=$CLI NVIM_CFG=$NVIM_CFG nlua "$T/t11.lua" 2>&1 | tee "$T/t11.out" | grep -q "T11 OK" || { cat "$T/t11.out"; fail "section 11"; }

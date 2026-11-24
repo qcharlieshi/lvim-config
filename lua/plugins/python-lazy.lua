@@ -1,5 +1,5 @@
 -- Gate Python test/debug adapters to `ft = "python"` so they stay off the
--- startup path outside Python repos. See docs/plugin-audit.md line 130.
+-- startup path outside Python repos. See docs/todo/plugin-audit.md line 130.
 --
 -- Note: the real startup-load culprit for `nvim-dap-python` was the `VeryLazy`
 -- event + dependency in `venv-selector.lua`; that's been swapped to `ft =

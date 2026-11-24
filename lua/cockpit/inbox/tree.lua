@@ -329,8 +329,12 @@ function M.build(opts)
     sum(totals, counts)
     local p =
       { kind = "project", key = "p:" .. n, name = n, counts = counts, children = children, urgency = tier(counts) }
-    if dead[n] or earlier[n] then
-      local past = nest(dead[n] or {}, ctx, true)
+    -- X marks rec.dead: dismissed from past once it owns no visible threads (g. brings it back)
+    local shown = vim.tbl_filter(function(i)
+      return opts.show_archived or not i.rec.dead or by_owner[i.key] ~= nil
+    end, dead[n] or {})
+    if #shown > 0 or earlier[n] then
+      local past = nest(shown, ctx, true)
       table.sort(past, function(a, b)
         return a.recent > b.recent
       end)

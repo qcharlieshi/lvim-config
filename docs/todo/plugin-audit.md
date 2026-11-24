@@ -1,6 +1,6 @@
 # Plugin Audit — 2026-04-15
 
-Audit of the ~101 installed plugins (106 tracked in `lazy-lock.json`). Companion to [`plugin-ecosystem.md`](plugin-ecosystem.md). Findings grouped by severity: bugs first, redundancy/bloat second, install quirks third, open questions last.
+Audit of the ~101 installed plugins (106 tracked in `lazy-lock.json`). Companion to [`plugin-ecosystem.md`](../plugin-ecosystem.md). Findings grouped by severity: bugs first, redundancy/bloat second, install quirks third, open questions last.
 
 ---
 

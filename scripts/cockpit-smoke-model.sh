@@ -54,7 +54,9 @@ local function run(show, reg)
 end
 local nodes = run(false)
 assert(vim.deep_equal(keys(nodes), { "header", "p:p", "a:SA", "a:SF", "t2", "t1", "a:SL2",
-  "past:p", "a:SD", "a:old:tL", "t5", "p:q", "unassigned", "t4" }), vim.inspect(keys(nodes)))
+  "past:p", "a:old:tL", "t5", "p:q", "unassigned", "t4" }), vim.inspect(keys(nodes)))
+-- SD was killed (rec.dead) and owns only an archived thread: dismissed from Past unless show_archived
+assert(vim.tbl_contains(vim.tbl_map(function(n) return n.key end, run(true)), "a:SD"))
 local by = {}
 for _, n in ipairs(nodes) do by[n.key] = n end
 assert(by["p:p"].counts.needs_you == 1, vim.inspect(by["p:p"].counts))
@@ -62,7 +64,6 @@ assert(by["a:SF"].fork == "continue" and by["a:SF"].depth == 2 and by["a:SF"].li
 assert(by["a:SL2"].name == "lilt-9" and by["a:SL2"].live, vim.inspect(by["a:SL2"]))  -- RF5: one row
 assert(#by["a:SL2"].children == 0, "earlier session's thread on the live agent")
 assert(by["a:old:tL"].name == "lilt-9 · earlier session" and not by["a:old:tL"].live)
-assert(by["a:SD"].live == false and by["a:SD"].depth == 2)
 assert(tree.owner_key(threads[1]) == "SA")
 assert(not vim.tbl_contains(keys(nodes), "t3"), "t3 shown without show_archived")
 assert(vim.tbl_contains(keys(run(true)), "t3"), "t3 missing with show_archived")

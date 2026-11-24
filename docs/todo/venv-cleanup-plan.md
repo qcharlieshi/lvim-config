@@ -115,5 +115,5 @@ Or selective revert: restore `lua/plugins/venv-selector.lua` only, leave the tel
 
 ## Related follow-ups (separate passes)
 
-- `docs/plugin-audit.md` line 130: `neotest-python` + `nvim-dap-python` lazy-loaded on `ft=python` — independent but same Python-stack cleanup theme.
+- `docs/todo/plugin-audit.md` line 130: `neotest-python` + `nvim-dap-python` lazy-loaded on `ft=python` — independent but same Python-stack cleanup theme.
 - Sibling Python extras in `lazyvim.json` worth reviewing once venv-selector's gone.

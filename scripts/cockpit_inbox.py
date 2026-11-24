@@ -14,7 +14,7 @@ Usage:
 Pipelines: one thread per run. Every post carries the stage it delivers (--stage); the first
 post names the pipeline and its ordered stages. A stage post always gates: the run never moves
 on until the human approves. Each post to a stage is a new round of that stage.
-    cockpit_inbox.py wait ID [--timeout S]   exit 0 approved/replied, 1 changes requested, 2 rejected, 3 timeout
+    cockpit_inbox.py wait ID [--timeout S]   block until the human replies (exit codes below)
     cockpit_inbox.py read ID [--new]         whole thread, or only unread replies (and ack them)
     cockpit_inbox.py list
     cockpit_inbox.py card add TITLE [--lane L] [--thread ID] [--note N] [--owe TEXT]
@@ -23,11 +23,15 @@ on until the human approves. Each post to a stage is a new round of that stage.
     cockpit_inbox.py hook prompt             UserPromptSubmit hook: snapshot repos at turn start (turns/)
     cockpit_inbox.py backfill-sessions [--dry-run]   tag legacy threads with the Claude session that posted them
 
+Exit codes (post --wait, wait, read --new): a verdict and an error never share a code.
+    0  approved, approved with notes, or a plain reply    10 changes requested    11 rejected    12 wait timed out
+    64 usage error    65 nothing to post (empty diff)    66 no such thread or card    70 internal error (traceback)
+
 --diff without REV, inside a Claude session: one diff per repo this turn changed, measured from the
 turn-start snapshot (so the human's own uncommitted work is left out), else the edited files vs HEAD.
 
 Storage ($COCKPIT_INBOX_DIR, default ~/.cockpit/inbox):
-    threads/<id>.jsonl   events: message · reply · annotation · annotation_deleted · state · ack
+    threads/<id>.jsonl   events: message · reply · annotation · annotation_deleted · state · ack · delivery
     blobs/<sha256>       attachment bytes as sent, so annotations pin to what was reviewed
     turns/<session>.json repo states at the session's latest prompt (head, stash-create snap, untracked)
     waiting/<id>         heartbeat while an agent blocks in `wait` (nvim skips tmux delivery)
@@ -45,6 +49,7 @@ import socket
 import subprocess
 import sys
 import time
+import traceback
 from datetime import datetime
 from pathlib import Path
 
@@ -54,7 +59,10 @@ BLOBS = ROOT / "blobs"
 WAITING = ROOT / "waiting"
 CARDS = ROOT / "cards.jsonl"
 LANES = ["backlog", "todo", "in_progress", "in_review", "done", "cancelled"]
-VERDICT_EXIT = {"changes_requested": 1, "reject": 2}
+# Verdicts 10-12, errors 64+ (sysexits.h): Python's own failures (1) and argparse's (2) can't pass for a verdict
+VERDICT_EXIT = {"changes_requested": 10, "reject": 11}
+EXIT_TIMEOUT = 12
+EX_USAGE, EX_DATAERR, EX_NOINPUT, EX_SOFTWARE = 64, 65, 66, 70
 CLI = f"python3 {Path(__file__).resolve()}"
 EDIT_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
 # The reply explains itself to the agent, so no skill has to teach the workflow up front
@@ -70,6 +78,11 @@ NEXT_STEP = {
 }
 
 
+def die(msg, code):
+    print(f"cockpit-inbox: {msg}", file=sys.stderr)
+    sys.exit(code)
+
+
 def append(path, event):
     path.parent.mkdir(parents=True, exist_ok=True)
     event = {
@@ -79,21 +92,53 @@ def append(path, event):
         "id": secrets.token_hex(6),
         **{k: v for k, v in event.items() if v is not None},
     }
-    with open(path, "a") as f:
-        f.write(json.dumps(event) + "\n")
+    data = (json.dumps(event) + "\n").encode()
+    # One write() on an O_APPEND fd: concurrent writers can't interleave inside a line, readers see all or nothing
+    fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
+    try:
+        if os.write(fd, data) != len(data):
+            raise OSError(f"short write to {path}")
+    finally:
+        os.close(fd)
     return event
 
 
 def read_jsonl(path):
-    if not path.exists():
+    """Complete events only: a last line without its newline is a write still in flight, a bad line is skipped,
+    and an event from a schema version this reader doesn't know is ignored (same rules as store.lua)."""
+    try:
+        lines = path.read_bytes().split(b"\n")[:-1]
+    except FileNotFoundError:
         return []
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    out = []
+    for line in lines:
+        try:
+            e = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(e, dict) and e.get("v", 1) == 1:
+            out.append(e)
+    return out
+
+
+VALID_ID = re.compile(r"[A-Za-z0-9_-]+")
+
+
+def valid_id(s):
+    """Thread and session ids become file names: nothing that can leave its directory."""
+    return isinstance(s, str) and VALID_ID.fullmatch(s) is not None
+
+
+def check_id(s, what="thread id"):
+    if not valid_id(s):
+        die(f"invalid {what} {s!r} (allowed: letters, digits, _ and -)", EX_USAGE)
+    return s
 
 
 def thread_path(tid, must_exist=True):
-    path = THREADS / f"{tid}.jsonl"
+    path = THREADS / f"{check_id(tid)}.jsonl"
     if must_exist and not path.exists():
-        sys.exit(f"cockpit-inbox: no thread {tid}")
+        die(f"no thread {tid}", EX_NOINPUT)
     return path
 
 
@@ -217,8 +262,21 @@ def snapshot(data, name, **extra):
     blob = BLOBS / sha
     if not blob.exists():
         BLOBS.mkdir(parents=True, exist_ok=True)
-        blob.write_bytes(data)
+        tmp = BLOBS / f".{sha}.{secrets.token_hex(4)}"  # renamed into place: a blob is never seen half-written
+        tmp.write_bytes(data)
+        tmp.replace(blob)
     return {"name": name, "sha256": sha, **{k: v for k, v in extra.items() if v is not None}}
+
+
+def edit_patch(ed):
+    """A reply edit's patch: inline (older replies) or in blobs/ by sha (store.lua keeps reply lines small)."""
+    if ed.get("patch") is not None:
+        return ed["patch"]
+    sha = ed.get("patch_sha256")
+    try:
+        return (BLOBS / check_id(sha, "blob sha")).read_text()
+    except OSError:
+        return f"(patch blob missing: {sha})"
 
 
 def git_diff(rev, cwd, paths=None, skip_untracked=(), exclude=()):
@@ -276,6 +334,7 @@ def repo_state(repo):
 
 def cmd_snapshot(a):
     """Detached child of the UserPromptSubmit hook: record every repo's state at turn start."""
+    check_id(a.session, "session id")
     repos = {}
     for r in repos_under(a.cwd):
         try:
@@ -316,6 +375,7 @@ def turn_diffs(sid, transcript=None, exclude=()):
     Repos snapshotted at turn start: worktree vs that snapshot (catches Bash edits and commits, leaves out
     work that predates the turn). Other repos holding a file the agent edited: those files vs HEAD."""
     turn = {}
+    sid = sid if valid_id(sid) else None
     if sid and (TURNS / f"{sid}.json").exists():
         try:
             turn = json.loads((TURNS / f"{sid}.json").read_text())
@@ -363,7 +423,7 @@ def slug(title):
 def cmd_post(a):
     cwd = os.getcwd()
     if not a.thread and not a.title:
-        sys.exit("cockpit-inbox: --title is required for a new thread")
+        die("--title is required for a new thread", EX_USAGE)
     tid = a.thread or f"{datetime.now():%Y%m%d-%H%M%S}-{slug(a.title)}"
     path = thread_path(tid, must_exist=bool(a.thread))
 
@@ -377,7 +437,7 @@ def cmd_post(a):
         # is reviewed as an editable document, so it stays out of the diffs
         diffs = turn_diffs(sid, exclude=a.attach)
         if not diffs and not attachments:
-            sys.exit("cockpit-inbox: this turn changed nothing to diff")
+            die("this turn changed nothing to diff", EX_DATAERR)
         for repo, base, label, patch in diffs:
             head = git("rev-parse", "--short", "HEAD", cwd=repo).strip()
             attachments.append(
@@ -388,7 +448,7 @@ def cmd_post(a):
         rev = a.diff or "HEAD"
         patch = git_diff(rev, cwd)
         if not patch.strip():
-            sys.exit(f"cockpit-inbox: empty diff against {rev}")
+            die(f"empty diff against {rev}", EX_DATAERR)
         head = git("rev-parse", "--short", "HEAD", cwd=cwd).strip()
         # Resolved now: the reviewer rebuilds both sides from it after HEAD has moved on
         base_sha = git("rev-parse", rev, cwd=cwd).strip()
@@ -425,8 +485,8 @@ def cmd_post(a):
 
 
 def pending_replies(events):
-    acked = {e["reply"] for e in events if e["kind"] == "ack"}
-    return [e for e in events if e["kind"] == "reply" and e["id"] not in acked]
+    acked = {e.get("reply") for e in events if e.get("kind") == "ack"}
+    return [e for e in events if e.get("kind") == "reply" and e.get("id") not in acked]
 
 
 def format_reply(tid, reply):
@@ -445,7 +505,7 @@ def format_reply(tid, reply):
             if n.get("text"):
                 out.append(f"   {n['text']}")
     for ed in reply.get("edits") or []:
-        out += ["", f"Edited by the human: {ed.get('path') or ed['attachment']}", "```diff", ed["patch"].rstrip(), "```"]
+        out += ["", f"Edited by the human: {ed.get('path') or ed['attachment']}", "```diff", edit_patch(ed).rstrip(), "```"]
     if reply.get("edits"):
         out += ["", NEXT_STEP["edits"]]
     out += ["", NEXT_STEP[reply.get("verdict")].format(cli=CLI, tid=tid)]
@@ -492,7 +552,7 @@ def wait(tid, timeout):
                 return emit(tid, new)
             if deadline and time.time() > deadline:
                 print(f"cockpit-inbox: no reply on {tid} yet (timeout); run `wait {tid}` again")
-                return 3
+                return EXIT_TIMEOUT
             time.sleep(2)
     finally:
         beat.unlink(missing_ok=True)
@@ -511,13 +571,13 @@ def cmd_read(a):
             return
         sys.exit(emit(a.thread, new))
     for e in events:
-        if e["kind"] == "message":
+        if e.get("kind") == "message":
             print(f"## agent · {e['at']}\n{e.get('text', '')}")
             for att in e.get("attachments", []):
                 print(f"  attached: {att['name']}")
             for q in e.get("questions", []):
                 print(f"  ? {q['text']} {q['options'] or ''}")
-        elif e["kind"] == "reply":
+        elif e.get("kind") == "reply":
             print(f"## human · {e['at']}\n{format_reply(a.thread, e)}")
         print()
 
@@ -525,25 +585,29 @@ def cmd_read(a):
 def cmd_list(_):
     for path in sorted(THREADS.glob("*.jsonl")):
         events = read_jsonl(path)
-        last = next((e for e in reversed(events) if e["kind"] in ("message", "reply")), {})
+        last = next((e for e in reversed(events) if e.get("kind") in ("message", "reply")), {})
         state = "replied" if last.get("kind") == "reply" else "open"
-        print(f"{path.stem}\t{state}\t{events[0].get('title', '')}")
+        title = next((e["title"] for e in events if e.get("title")), "")
+        print(f"{path.stem}\t{state}\t{title}")
 
 
 def cards():
     latest = {}
     for e in read_jsonl(CARDS):
-        latest[e["card"]] = e
+        if e.get("card"):
+            latest[e["card"]] = e
     return latest
 
 
 def cmd_card(a):
     if a.card_cmd == "add":
+        if a.thread is not None:
+            check_id(a.thread)
         card = {"card": f"c-{secrets.token_hex(4)}", "title": a.title, "lane": a.lane, "thread": a.thread}
     else:
         card = cards().get(a.card)
         if not card:
-            sys.exit(f"cockpit-inbox: no card {a.card}")
+            die(f"no card {a.card}", EX_NOINPUT)
         card = {k: card[k] for k in ("card", "title", "thread", "note", "owe") if k in card} | {"lane": a.lane}
     if a.note is not None:
         card["note"] = a.note
@@ -678,7 +742,8 @@ def hook_stop(payload):
     asks = last_line.rstrip("*_`) \t").endswith("?")
     if not reply_thread and not asks:
         return None
-    tid = reply_thread or f"session-{(payload.get('session_id') or 'unknown')[:8]}"
+    sid8 = (payload.get("session_id") or "")[:8]
+    tid = reply_thread or f"session-{sid8 if valid_id(sid8) else 'unknown'}"
     path = THREADS / f"{tid}.jsonl"
     event = {
         "kind": "message",
@@ -768,8 +833,14 @@ def cmd_backfill_sessions(a):
             append(path, {"kind": "owner", "session": {"session_id": sid}})
 
 
+class Parser(argparse.ArgumentParser):
+    def error(self, message):
+        self.print_usage(sys.stderr)
+        die(message, EX_USAGE)
+
+
 def main():
-    p = argparse.ArgumentParser(prog="cockpit_inbox.py", description="Agent side of the cockpit inbox")
+    p = Parser(prog="cockpit_inbox.py", description="Agent side of the cockpit inbox")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     post = sub.add_parser("post", help="post a message, documents, a diff or questions")
@@ -827,7 +898,11 @@ def main():
     s.set_defaults(fn=cmd_snapshot)
 
     a = p.parse_args()
-    a.fn(a)
+    try:
+        a.fn(a)
+    except Exception:
+        traceback.print_exc()
+        sys.exit(EX_SOFTWARE)
 
 
 if __name__ == "__main__":

@@ -83,8 +83,9 @@ local function start(parent, session, cwd, add_dirs, system, prompt, rec, cb, un
   end
   local pane_id, tab_id = res.root_pane.pane_id, res.tab.tab_id
   local hook = { type = "command", command = "printf '%s\\n' " .. vim.fn.shellescape(system) }
-  local settings = vim.json.encode({ hooks = { SessionStart = { { hooks = { hook } } } } })
-  local args = { "--resume", session, "--fork-session", "--settings", settings }
+  local settings = { hooks = { SessionStart = { { hooks = { hook } } } } }
+  local args = { "--resume", session, "--fork-session" }
+  vim.list_extend(args, require("cockpit.profiles").args(rec.profile, settings))
   for _, d in ipairs(add_dirs) do
     vim.list_extend(args, { "--add-dir", d })
   end
@@ -108,15 +109,16 @@ local function start(parent, session, cwd, add_dirs, system, prompt, rec, cb, un
   end)
 end
 
--- f: fork in the parent's own checkout. cb(err, name).
-function M.continue(parent, prompt, cb)
+-- f: fork in the parent's own checkout. cb(err, name). profile: cockpit.profiles name.
+function M.continue(parent, prompt, cb, profile)
   cb = cb or function() end
   parent = named(parent)
   local p, session = check(parent)
   if not p then
     return cb({ code = "no_session", message = "cannot fork " .. parent.name })
   end
-  start(parent, session, parent.cwd, vim.list_slice(p.repos, 2), preamble(parent), prompt, { fork = "continue" }, cb)
+  local rec = { fork = "continue", profile = profile or "default" }
+  start(parent, session, parent.cwd, vim.list_slice(p.repos, 2), preamble(parent), prompt, rec, cb)
 end
 
 local function exclude_worktrees(repo)
@@ -142,8 +144,8 @@ local function rollback(wts)
   end
 end
 
--- F: fork into fresh worktrees of every project repo. cb(err, name).
-function M.worktree(parent, prompt, cb)
+-- F: fork into fresh worktrees of every project repo. cb(err, name). profile: cockpit.profiles name.
+function M.worktree(parent, prompt, cb, profile)
   cb = cb or function() end
   parent = named(parent)
   local p, session = check(parent)
@@ -181,19 +183,10 @@ function M.worktree(parent, prompt, cb)
     table.concat(paths, ", "),
     branch
   ) .. preamble(parent)
-  start(
-    parent,
-    session,
-    paths[1],
-    vim.list_slice(paths, 2),
-    system,
-    prompt,
-    { fork = "worktree", worktrees = wts },
-    cb,
-    function()
-      rollback(wts)
-    end
-  )
+  local rec = { fork = "worktree", worktrees = wts, profile = profile or "default" }
+  start(parent, session, paths[1], vim.list_slice(paths, 2), system, prompt, rec, cb, function()
+    rollback(wts)
+  end)
 end
 
 -- After a worktree fork is killed: drop clean, commit-less worktrees + branch silently; otherwise

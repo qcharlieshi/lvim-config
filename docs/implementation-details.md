@@ -55,6 +55,125 @@ All metrics displayed in lualine with color-coded thresholds (green/yellow/red).
 - Auto-creates/attaches to a Claude session without picker prompt
 - Supports sending context: current buffer (`{this}`), file (`{file}`), all buffers (`{buffers}`), visual selection (`{selection}`)
 
+## Cockpit (`lua/cockpit/`, `scripts/cockpit*`)
+
+Agent review inbox + agent runtime front end. Agents (Claude Code) post documents, diffs and questions; you review, edit, annotate and send a verdict from one nvim tab. Agents run headless in **herdr** (or as plain Claude sessions you started yourself in tmux). Keys: [keybindings.md](keybindings.md) → "Cockpit". Design history lives in git (removed `docs/superpowers/`); current state and Production gaps: [todo/cockpit-architecture-review.md](todo/cockpit-architecture-review.md).
+
+### Modules
+
+| File | Role |
+| --- | --- |
+| `scripts/cockpit_inbox.py` | Agent-side CLI (`post`, `wait`, `read`, `list`, `card`) + Claude Code hooks (`hook stop`, `hook prompt`). Owns `inbox/` writes from the agent side |
+| `scripts/cockpit-claude` | `claude` wrapper (the zsh `claude()` function calls it): spawns the agent headless in herdr via `cockpit-spawn.lua` and attaches in the current tmux pane. Falls back to plain `claude` outside tmux, inside herdr, for `-p`/`--version`/positional prompts, in `$HOME` or `/`, or with `COCKPIT_NO_HERDR=1` |
+| `scripts/cockpit-spawn.lua` | Headless nvim entry used by `cockpit-claude` to resolve the project and spawn |
+| `scripts/cockpit-smoke-herdr.sh` | End-to-end smoke test against a scratch herdr session and temp dirs (starts real Claude agents: spends tokens) |
+| `scripts/test` | Unit + contract tests, see **Tests** below |
+| `lua/cockpit/herdr.lua` | The only nvim ↔ herdr code: NDJSON socket client, live agent cache, spawn/kill/interrupt/attach/prompt. Always uses explicit target ids, never `--current` (herdr #2900) |
+| `lua/cockpit/projects.lua` | Named repo sets; `for_dir()` maps a directory to a project, creating one if needed |
+| `lua/cockpit/registry.lua` | Per-project `agents.jsonl` |
+| `lua/cockpit/sessions.lua` | Read-only discovery of Claude sessions you started yourself in tmux (not run by herdr) |
+| `lua/cockpit/forks.lua` | `continue` / `worktree` forks of an agent's session (`--resume <id> --fork-session`) |
+| `lua/cockpit/profiles.lua` | Launch profiles picked on spawn/fork (model, effort, plugins, `--settings`…). Built-in `default` adds no flags; more in `~/.cockpit/profiles.json`. The picker is skipped while `default` is the only one; the choice is recorded as `profile` in `agents.jsonl` |
+| `lua/cockpit/inbox/store.lua` | Reads and writes the JSONL shared with the Python CLI; derives thread state. Events only, no transports |
+| `lua/cockpit/inbox/delivery.lua` | Reply delivery + outbox: herdr `agent.prompt` or tmux `send-keys`, retried until the agent has it |
+| `lua/cockpit/inbox/ui.lua` | The tab: rail (left) · workspace (deliverable) · thread (bottom); composer + notes float |
+| `lua/cockpit/inbox/rail.lua`, `tree.lua` | Rail rendering; `tree.lua` is the pure project → agent → fork → thread model |
+| `lua/cockpit/inbox/review.lua` | Diff deliverables in CodeDiff, rebuilt from the sent patch (never touches the agent's worktree) |
+
+### File system (`~/.cockpit/`)
+
+Logs are append-only JSONL and are never rewritten. All state (status, drafts, read/archived, current card lane, live agents) is derived by replaying them. Every line has a `{v: 1, at, ts, id}` envelope. The Python and Lua sides read and write the same files, under the same rules:
+- **Write** each event with one `write()` on an `O_APPEND` fd (Python `os.write`, Lua `uv.fs_write`), so concurrent writers never interleave inside a line. Blobs are written to a temp name and renamed into place.
+- **Read** only newline-terminated lines: a last line without its `\n` is a write still in flight. Skip lines that don't parse and events whose `v` isn't 1.
+- **Ids that become paths** (thread ids, session ids, blob shas) must match `^[A-Za-z0-9_-]+$`. The CLI exits 64 otherwise; `store.thread()` returns nil and `store.thread_file()` raises.
+
+```
+~/.cockpit/
+├── inbox/                      $COCKPIT_INBOX_DIR
+│   ├── threads/<tid>.jsonl     one event log per thread (tid: YYYYMMDD-HHMMSS-<slug>, or session-<sid8> from the Stop hook)
+│   ├── blobs/<sha256>          attachment bytes as sent, so notes stay pinned to what was reviewed
+│   ├── turns/<session>.json    per-repo state at turn start (written by `hook prompt`)
+│   ├── waiting/<tid>           touched every 2 s while an agent blocks in `wait`
+│   ├── outbox/<reply_id>.<n>   O_EXCL claim on delivery attempt n, so two nvims never prompt twice
+│   ├── edits/<tid>/<sha256>    your edited copy of a file deliverable
+│   ├── review/<tid>/<sha12>/   diff deliverable trees: base/ (before) · review/ (editable) · sent/ (agent's, pristine)
+│   ├── cards.jsonl             board card snapshots (latest line per card wins)
+│   └── feedback.jsonl          steering log: one line per verdict / edit / note sent
+├── projects/                   $COCKPIT_PROJECTS_DIR
+│   └── <name>/
+│       ├── project.json        {name, repos[], created}; repos[0] is primary (spawn cwd), rest are --add-dir
+│       ├── repos/<basename>    symlink → repo (collision → <basename>-2)
+│       ├── threads/<tid>.jsonl symlink → inbox thread (browsing only; nothing reads through it)
+│       ├── agents.jsonl        {terminal_id, name, project, session, ts, dead?}; forks add fork ("continue"|"worktree"), parent_terminal, parent_name, worktrees[{repo, path, branch, base}]; latest line per terminal_id wins
+│       └── names/<name>        O_EXCL name claims so two spawns can't take the same name
+├── attached/<terminal_id>      $COCKPIT_ATTACH_DIR: tmux pane id where cockpit-claude has this herdr agent attached
+└── status/<session_id>.json    $COCKPIT_STATUS_DIR: status line input JSON saved by claude-statusline.sh (nix-darwin dotfiles)
+```
+
+**Thread events** (`kind`):
+
+| kind | Writer | Fields |
+| --- | --- | --- |
+| `message` | agent | `text`, `attachments[]`, `questions[{id,text,options}]`, `gate`, `stage`, `pipeline`, `stages`, `session{agent,tmux_pane,herdr{pane_id,workspace_id,terminal_id,name},cwd,pid}`; first message also has `title`, `project` |
+| `annotation` | you | `sha256`, `attachment`, `line_start`, `line_end`, `quote`, `loc`, `label`, `blocking`, `text` |
+| `annotation_deleted` | you | `target` |
+| `reply` | you | `verdict` (approve · approve_with_notes · changes_requested · reject · none), `text`, `answers[]`, `annotations[]` (the drafts it sends), `edits[{attachment, sha256, path, patch_sha256}]` (the patch body is in `blobs/`; older replies carry it inline as `patch`), `stage`, `round` |
+| `ack` | agent | `reply` (id the agent has read) |
+| `delivery` | you | `replies[]` (reply ids this attempt covers), `ok`, `via` (herdr · tmux · wait; absent when no agent was reachable), `target`, `detail` |
+| `state` | you | `read`, `archived` |
+
+**Attachments**: `{name, sha256, type: "file"|"diff"}`. Files also carry `path`. Diffs also carry `base`, `base_sha` (resolved when posted), `head` and `cwd`.
+
+**What `store.thread()` derives**:
+- `drafts`: annotations that are neither deleted nor already sent.
+- `status`, first match wins:
+  - `replied`: the last event is your reply.
+  - `needs_you`: there are open questions, or the last message has `gate`.
+  - `unread`: the last message comes after the read marker **in the log** (`t.unread`). Log order, not `ts`: a message that lands in the same second you open the thread is still unread.
+  - otherwise `read`.
+- `round`: count of messages per `stage`.
+- `deliverables`: the latest message that has attachments.
+- `unacked`: replies the agent hasn't acked, each with `attempts` (its `delivery` events) and `delivered` (one attempt was `ok`). `undelivered`: the unacked replies that never reached the agent. Replies from before the outbox have no attempts, so they show as undelivered but are never re-sent automatically.
+- `owner`: the first message's `session`. Project is matched by the `COCKPIT_PROJECT` env var, else the git common dir's basename (so worktrees share their main repo's project).
+
+### Flows
+
+- **Posting**: `cockpit_inbox.py post` copies the attachments into `blobs/` and appends a `message`. `--gate` (or any `--stage`) puts the thread in `needs_you`. `--wait` blocks on `wait`.
+- **CLI exit codes** (`post --wait`, `wait`, `read --new`). Verdicts and errors never share a code, so a failing CLI can't pass for a verdict:
+
+  | Code | Meaning |
+  | --- | --- |
+  | 0 | approved, approved with notes, or a plain reply |
+  | 10 / 11 | changes requested / rejected |
+  | 12 | `wait --timeout` ran out |
+  | 64 | usage error (argparse, `post` without `--title`, invalid thread id) |
+  | 65 | nothing to post (empty diff) |
+  | 66 | no such thread or card |
+  | 70 | internal error (traceback on stderr) |
+- **Stop hook** (registered in `~/.claude/settings.json`): runs only in tmux or herdr sessions, and only when nobody is watching the agent's pane. A herdr agent counts as watched only while it's attached (marker in `attached/`) and that tmux pane is visible. Then:
+  - If the turn changed files, the hook **blocks the stop** and tells the agent to `post` them.
+  - Otherwise, if the last line of the agent's message ends in `?` (or the session is already replying to a thread), it posts that message itself.
+- **Reply delivery** (`delivery.lua`; `store.deliver` is a shim for `ui.send`). One prompt covers every undelivered reply of a thread. First match wins:
+  - The agent is blocked in `wait` (fresh `waiting/<tid>`): it reads the reply itself (logged as `via = "wait"`).
+  - The thread has a herdr session: `agent.prompt`, joined on `terminal_id`. Never falls back to tmux for these.
+  - Otherwise, a one-line `tmux send-keys` to `session.tmux_pane`, but only while that pane hosts a live Claude session (`sessions.list()`), with the same `session_id` when the thread records one. Pane ids restart with the tmux server, so a bare pane id could be anyone's shell. The agent then runs `read <tid> --new`, which also appends the `ack`.
+  - The thread → agent join is `delivery.resolve(t)`, replaceable (e.g. to join on the Claude session id). Transports are `delivery.transports.{herdr,tmux}`.
+- **Outbox**: every attempt appends a `delivery` event. `delivery.flush()` retries undelivered replies of non-archived threads on `CockpitAgents` (agent cache changed), on inbox changes, and every 60 s (tmux panes emit no events):
+  - Unreachable at send time (agent offline, no Claude in the pane): queued. Sent as soon as `resolve` finds the agent, if the reply is under 1 h old.
+  - Reached once (`ok`): never sent again, acked or not.
+  - The transport failed (e.g. agent at a dialog): retried with backoff 30 s, doubling, capped at 1 h, at most 8 tries.
+  - No attempt at all (nvim died between the reply and its delivery): picked up if the reply is under 1 h old.
+  - Each attempt is claimed first with an O_EXCL file in `outbox/`, so several nvims flushing at once prompt only once.
+- **Turn diffs** (`post --diff` with no REV, inside a Claude session): one diff per repo the turn touched, compared against the `turns/` snapshot. The snapshot comes from `git stash create`, so your own uncommitted work is left out. Repos without a snapshot fall back to the edited files vs HEAD.
+  - **Not wired yet:** `hook prompt` (UserPromptSubmit) isn't registered in `~/.claude/settings.json`, so `turns/` is never written and only the fallback runs.
+
+### Tests
+
+`scripts/test` (or `scripts/test py` / `scripts/test lua`) runs both suites in about 6 s with no herdr, no Claude, no tmux and no network:
+- **Python**: `uv run --no-project --with pytest pytest tests/python`. Tests import `scripts/cockpit_inbox.py` against a temp inbox (it reads env at import, so `conftest.py` reloads it), with `TMUX*`, `HERDR_*` and `CLAUDE_CODE_SESSION_ID` unset.
+- **Lua**: mini.test in headless nvim with `-u tests/minimal_init.lua` (this repo + mini.nvim from lazy's dir, else cloned into `.tests/deps/`). `tests/helpers.lua` gives each case a fresh inbox and reloads `cockpit.*`; herdr and tmux are faked.
+- **Contract**: `tests/fixtures/threads/*.jsonl` and `expected.json` are asserted by both suites: Python pending replies, Lua `store.thread()` status / stage / round / drafts / open questions / unacked / undelivered. When the schema changes, add a fixture here first.
+
 ## Buffer Reuse Strategy
 
 - `switchbuf = {"useopen", "usetab"}` in `init.lua:6` — reuses existing buffers/tabs when opening files
