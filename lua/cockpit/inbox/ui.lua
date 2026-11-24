@@ -1264,10 +1264,12 @@ end
 function M.spawn(project)
   local projects, herdr = require("cockpit.projects"), require("cockpit.herdr")
   local function go(name)
-    vim.ui.input({ prompt = "First prompt (optional): " }, function(text)
-      if text ~= nil then
-        herdr.spawn(name, text)
-      end
+    require("cockpit.profiles").pick(function(profile)
+      vim.ui.input({ prompt = "First prompt (optional): " }, function(text)
+        if text ~= nil then
+          herdr.spawn(name, text, nil, { profile = profile })
+        end
+      end)
     end)
   end
   if type(project) == "string" and project ~= "" then

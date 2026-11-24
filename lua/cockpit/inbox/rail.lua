@@ -765,14 +765,17 @@ function M.attach(buf)
   map(buf, "X", with_agent(M.kill_agent, false, false), "Kill agent")
   local function fork(kind)
     return function(a)
-      vim.ui.input({ prompt = "Fork prompt (optional): " }, function(text)
-        if text == nil then
-          return -- cancelled
-        end
-        require("cockpit.forks")[kind](a.agent, text, function()
-          ui().refresh()
+      local p = a.agent.project and require("cockpit.registry").all(a.agent.project)[a.agent.terminal_id]
+      require("cockpit.profiles").pick(function(profile)
+        vim.ui.input({ prompt = "Fork prompt (optional): " }, function(text)
+          if text == nil then
+            return -- cancelled
+          end
+          require("cockpit.forks")[kind](a.agent, text, function()
+            ui().refresh()
+          end, profile)
         end)
-      end)
+      end, p and p.profile)
     end
   end
   map(buf, "f", with_agent(fork("continue"), true, true), "Fork agent (continue)")

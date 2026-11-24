@@ -429,6 +429,7 @@ function M.start_in(pane_id, name, args, rec, cb, opts)
 end
 
 -- Start a Claude agent in `project`; cb(err, name, pane_id). opts.args: extra claude args (appended);
+-- opts.profile: cockpit.profiles name (default "default"), recorded in the registry;
 -- opts.interactive = false: no attach prompt when blocked at startup (cb still gets the name).
 -- opts.cwd: the pane's cwd (default: the primary repo). opts.env: base pane env (COCKPIT_* win).
 -- opts.on_pane(pane_id): called as soon as the pane exists (the launcher closes it if it gives up).
@@ -455,8 +456,10 @@ function M.spawn(project, prompt, cb, opts)
   for i = 2, #p.repos do
     vim.list_extend(args, { "--add-dir", p.repos[i] })
   end
+  vim.list_extend(args, require("cockpit.profiles").args(opts.profile))
   vim.list_extend(args, opts.args or {})
-  M.start_in(pane_id, free_name(project), args, { project = project }, function(serr, name)
+  local rec = { project = project, profile = opts.profile or "default" }
+  M.start_in(pane_id, free_name(project), args, rec, function(serr, name)
     if not serr and prompt and prompt ~= "" then
       M.request("agent.prompt", { target = name, text = prompt }, function() end)
     end
