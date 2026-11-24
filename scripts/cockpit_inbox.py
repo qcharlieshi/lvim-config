@@ -21,6 +21,7 @@ on until the human approves. Each post to a stage is a new round of that stage.
     cockpit_inbox.py card move CARD LANE [--note N] [--owe TEXT]
     cockpit_inbox.py hook stop               Claude Code Stop hook (stdin: hook JSON), see hook_stop()
     cockpit_inbox.py hook prompt             UserPromptSubmit hook: snapshot repos at turn start (turns/)
+    cockpit_inbox.py backfill-sessions [--dry-run]   tag legacy threads with the Claude session that posted them
 
 --diff without REV, inside a Claude session: one diff per repo this turn changed, measured from the
 turn-start snapshot (so the human's own uncommitted work is left out), else the edited files vs HEAD.
@@ -708,6 +709,65 @@ def cmd_hook(a):
         print(json.dumps(decision))
 
 
+def thread_session(events):
+    """The Claude session id a thread already records (owner event or first message), else None."""
+    owner = None
+    for e in events:
+        if e.get("kind") == "message" and owner is None:
+            owner = e.get("session") or {}
+        elif e.get("kind") == "owner":
+            owner = {**(owner or {}), **(e.get("session") or {})}
+    owner = owner or {}
+    return owner.get("session_id") or (owner.get("herdr") or {}).get("session_id")
+
+
+def first_mention(path, needle):
+    """Timestamp of the first transcript line mentioning needle ('' if it has none)."""
+    try:
+        with open(path, errors="replace") as f:
+            for line in f:
+                if needle in line:
+                    try:
+                        return json.loads(line).get("timestamp") or ""
+                    except ValueError:
+                        return ""
+    except OSError:
+        pass
+    return None
+
+
+def posting_session(tid):
+    """The session that posted thread tid: hook threads are named session-<first 8 of its id>; otherwise the
+    transcript that mentions the id first (later sessions may mention it too, e.g. when reading it)."""
+    projects = CLAUDE_DIR / "projects"
+    m = re.fullmatch(r"session-([0-9a-f]{8})", tid)
+    if m:
+        hit = sorted(projects.glob(f"*/{m.group(1)}*.jsonl"))
+        return hit[0].stem if hit else None
+    try:
+        out = subprocess.run(["rg", "-l", "-F", "--max-depth", "2", "-g", "*.jsonl", "-e", tid, str(projects)],
+                             capture_output=True, text=True).stdout.split()
+    except OSError:
+        out = [str(f) for f in projects.glob("*/*.jsonl") if tid in f.read_text(errors="replace")]
+    best = None
+    for f in out:
+        ts = first_mention(f, tid)
+        if ts is not None and (best is None or ts < best[0]):
+            best = (ts, Path(f).stem)
+    return best and best[1]
+
+
+def cmd_backfill_sessions(a):
+    for path in sorted(THREADS.glob("*.jsonl")):
+        events = read_jsonl(path)
+        if not events or thread_session(events):
+            continue
+        sid = posting_session(path.stem)
+        print(f"{path.stem} -> {sid or 'unmatched'}")
+        if sid and not a.dry_run:
+            append(path, {"kind": "owner", "session": {"session_id": sid}})
+
+
 def main():
     p = argparse.ArgumentParser(prog="cockpit_inbox.py", description="Agent side of the cockpit inbox")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -738,6 +798,9 @@ def main():
     r.set_defaults(fn=cmd_read)
 
     sub.add_parser("list", help="list threads").set_defaults(fn=cmd_list)
+    bf = sub.add_parser("backfill-sessions", help="tag legacy threads with the Claude session that posted them")
+    bf.add_argument("--dry-run", action="store_true")
+    bf.set_defaults(fn=cmd_backfill_sessions)
 
     c = sub.add_parser("card", help="board cards").add_subparsers(dest="card_cmd", required=True)
     add = c.add_parser("add")

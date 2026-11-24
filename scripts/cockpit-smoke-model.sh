@@ -241,4 +241,34 @@ LUA
   ok "worktree_plan paths/branches; new-worktree and existing-worktrees projects; add-worktree appends"
 fi
 
+# --- 25: backfill-sessions tags legacy threads with the Claude session that posted them -------------------
+if want 25; then
+  echo "25: backfill-sessions"
+  export COCKPIT_INBOX_DIR=$T/inbox25 # own inbox: earlier sections leave threads behind
+  mkdir -p "$COCKPIT_CLAUDE_DIR/projects/x" "$COCKPIT_INBOX_DIR/threads"
+  echo '{}' >"$COCKPIT_CLAUDE_DIR/projects/x/1077c886-aaaa.jsonl"
+  echo '{"text":"posted 20261124-070847-eng-35131-spec ok"}' >"$COCKPIT_CLAUDE_DIR/projects/x/8737f883-bbbb.jsonl"
+  for id in session-1077c886 20261124-070847-eng-35131-spec lonely; do
+    echo '{"v":1,"ts":1,"kind":"message","from":"agent","text":"x","session":{"herdr":{"terminal_id":"tL"},"pid":1}}' \
+      >"$COCKPIT_INBOX_DIR/threads/$id.jsonl"
+  done
+  python3 "$CLI" backfill-sessions --dry-run >"$T/bf.out"
+  grep -q "session-1077c886 -> 1077c886-aaaa" "$T/bf.out" || { cat "$T/bf.out"; fail "dry-run output"; }
+  [ "$(cat "$COCKPIT_INBOX_DIR"/threads/*.jsonl | wc -l)" -eq 3 ] || fail "dry-run wrote"
+  python3 "$CLI" backfill-sessions >/dev/null
+  cat >"$T/t25.lua" <<'LUA'
+local store = require("cockpit.inbox.store")
+assert(store.owner_session(store.thread("session-1077c886")) == "1077c886-aaaa")
+assert(store.owner_session(store.thread("20261124-070847-eng-35131-spec")) == "8737f883-bbbb")
+assert(store.owner_session(store.thread("lonely")) == nil)
+assert(store.thread("session-1077c886").owner.herdr.terminal_id == "tL", "seat lost")
+print("T25 OK")
+LUA
+  nlua "$T/t25.lua" 2>&1 | tee "$T/t25.out" | grep -q "T25 OK" || { cat "$T/t25.out"; fail "section 25"; }
+  before=$(cat "$COCKPIT_INBOX_DIR"/threads/*.jsonl | wc -l)
+  python3 "$CLI" backfill-sessions >/dev/null
+  [ "$(cat "$COCKPIT_INBOX_DIR"/threads/*.jsonl | wc -l)" -eq "$before" ] || fail "second run appended"
+  ok "backfill: session-<8hex> and transcript search tag legacy threads; unmatched untouched; idempotent; dry-run writes nothing"
+fi
+
 echo "model smoke: all requested sections passed"
