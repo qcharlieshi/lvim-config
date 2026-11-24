@@ -114,8 +114,16 @@ local function git_roots()
   return roots
 end
 
--- name → repos (first pick is primary) → save → cb(p)
-function M.new(cb)
+local function valid_name(name)
+  if not name:match(NAME) or #name > 28 then
+    vim.notify("cockpit: project names are [a-z][a-z0-9_-], max 28 chars", vim.log.levels.WARN)
+    return false
+  end
+  return true
+end
+
+-- name → dirs (first pick is primary) → save → cb(p)
+local function new_from_dirs(cb)
   vim.ui.input({ prompt = "Project name: " }, function(name)
     if not name or name == "" then
       return
@@ -216,6 +224,168 @@ function M.edit(name)
     function(n)
       if n then
         open(n)
+      end
+    end
+  )
+end
+
+-- Where a new worktree for `key` (ENG-35131, optional) + `slug` goes: <repo>-<number> (the sibling convention,
+-- e.g. lilt-mcp-35131), <repo>-<number>-<slug> if that exists, <repo>-<slug> without a ticket. Branch
+-- <prefix>/<KEY>-<slug> (eng/ENG-35131-slack-poc), or <prefix>/<slug>.
+function M.worktree_plan(repo, key, slug)
+  local prefix = require("cockpit.ticket").prefixes()[1]:lower()
+  local num = key and key:match("%-(%d+)$")
+  local path = num and (repo .. "-" .. num) or (repo .. "-" .. slug)
+  if num and vim.uv.fs_stat(path) then
+    path = path .. "-" .. slug
+  end
+  return { path = path, branch = key and (prefix .. "/" .. key .. "-" .. slug) or (prefix .. "/" .. slug) }
+end
+
+function M.make_worktree(repo, key, slug)
+  local plan = M.worktree_plan(repo, key, slug)
+  local r = vim
+    .system({ "git", "-C", repo, "worktree", "add", "-b", plan.branch, plan.path, "HEAD" }, { text = true })
+    :wait()
+  if r.code ~= 0 then
+    return nil, vim.trim(r.stderr or "")
+  end
+  return plan.path
+end
+
+-- linked worktrees of `repo` (not the main checkout): { {path, branch?} }
+function M.list_worktrees(repo)
+  local out = vim.system({ "git", "-C", repo, "worktree", "list", "--porcelain" }, { text = true }):wait().stdout or ""
+  local list, cur = {}, nil
+  for line in (out .. "\n"):gmatch("([^\n]*)\n") do
+    if line:match("^worktree ") then
+      cur = { path = line:sub(10) }
+      list[#list + 1] = cur
+    elseif cur and line:match("^branch ") then
+      cur.branch = line:sub(8):gsub("^refs/heads/", "")
+    end
+  end
+  table.remove(list, 1) -- the main checkout comes first
+  return list
+end
+
+-- dirs from worktrees: "New worktree" (ticket, slug -> git worktree add) or "Existing worktrees" (multi-pick).
+-- cb(dirs, key) with the ticket key for naming, or nothing on cancel.
+local function pick_worktrees(kind, cb)
+  vim.ui.select(git_roots(), { prompt = "Repo" }, function(repo)
+    if not repo then
+      return
+    end
+    if kind == "New worktree" then
+      vim.ui.input({ prompt = "Ticket (e.g. ENG-35131, optional): " }, function(raw)
+        if raw == nil then
+          return
+        end
+        local key = require("cockpit.ticket").find(raw)
+        vim.ui.input({ prompt = "Short slug: " }, function(slug)
+          if not slug or slug == "" then
+            return
+          end
+          local path, err = M.make_worktree(repo, key, slug)
+          if not path then
+            return vim.notify("cockpit: git worktree add failed — " .. err, vim.log.levels.ERROR)
+          end
+          cb({ path }, key, slug)
+        end)
+      end)
+      return
+    end
+    local wts, picked = M.list_worktrees(repo), {}
+    local function more()
+      local items = { DONE }
+      for _, w in ipairs(wts) do
+        if not vim.tbl_contains(picked, w.path) then
+          items[#items + 1] = w.path
+        end
+      end
+      local fmt = function(item)
+        for _, w in ipairs(wts) do
+          if w.path == item then
+            return ("%s  [%s]"):format(item, w.branch or "detached")
+          end
+        end
+        return item
+      end
+      vim.ui.select(items, { prompt = "Worktrees (" .. #picked .. " so far)", format_item = fmt }, function(choice)
+        if choice and choice ~= DONE then
+          picked[#picked + 1] = choice
+          return more()
+        end
+        if #picked > 0 then
+          cb(picked, require("cockpit.ticket").for_dir(picked[1]))
+        end
+      end)
+    end
+    more()
+  end)
+end
+
+local KINDS = { "Dirs", "New worktree", "Existing worktrees" }
+
+-- :CockpitProject new — from dirs, a new worktree, or existing worktrees; cb(p) once saved
+function M.new(cb)
+  vim.ui.select(KINDS, { prompt = "New project from" }, function(kind)
+    if kind == "Dirs" then
+      return new_from_dirs(cb)
+    elseif not kind then
+      return
+    end
+    pick_worktrees(kind, function(dirs, key, slug)
+      vim.ui.input({ prompt = "Project name: ", default = slug or "" }, function(name)
+        if name == "" then
+          name = slug
+        end
+        if not name or not valid_name(name) then
+          return
+        end
+        M.save({ name = name, repos = dirs, ticket = key })
+        vim.notify("cockpit: project " .. name .. " saved (" .. #dirs .. " dirs)")
+        if cb then
+          cb(M.get(name))
+        end
+      end)
+    end)
+  end)
+end
+
+-- :CockpitProject add-worktree [name] — append a new or existing worktree to a project
+function M.add_worktree(name)
+  local function go(n)
+    local p = M.get(n)
+    if not p then
+      return vim.notify("cockpit: no project " .. tostring(n), vim.log.levels.WARN)
+    end
+    vim.ui.select({ "New worktree", "Existing worktrees" }, { prompt = "Add to " .. n }, function(kind)
+      if not kind then
+        return
+      end
+      pick_worktrees(kind, function(dirs)
+        for _, d in ipairs(dirs) do
+          if not vim.tbl_contains(p.repos, d) then
+            p.repos[#p.repos + 1] = d
+          end
+        end
+        M.save(p)
+        vim.notify(("cockpit: %s now has %d dirs"):format(n, #p.repos))
+      end)
+    end)
+  end
+  if name and name ~= "" then
+    return go(name)
+  end
+  vim.ui.select(
+    vim.tbl_map(function(p)
+      return p.name
+    end, M.list()),
+    { prompt = "Add a worktree to project" },
+    function(n)
+      if n then
+        go(n)
       end
     end
   )

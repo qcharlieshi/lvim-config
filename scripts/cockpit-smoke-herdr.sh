@@ -118,7 +118,7 @@ ok "cache sees smoke-1 idle with terminal_id; CockpitAgents fired; ensure() star
 echo "3: projects"
 cat >"$T/t3.lua" <<'LUA'
 local projects = require("cockpit.projects")
-local picks = { vim.env.NVIM_CFG, vim.fn.expand("~/dev/profile_website"), "✓ done" }
+local picks = { "Dirs", vim.env.NVIM_CFG, vim.fn.expand("~/dev/profile_website"), "✓ done" }
 vim.ui.input = function(_, cb) cb("smoke") end
 vim.ui.select = function(_, _, cb) cb(table.remove(picks, 1)) end
 projects.new()

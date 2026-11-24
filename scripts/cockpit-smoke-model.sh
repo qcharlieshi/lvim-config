@@ -188,4 +188,51 @@ LUA
   ok "learn(): /clear appends the seat's new session; ENG title renames agent + tab once; noise and hand-set names untouched"
 fi
 
+# --- 23: project creation from new / existing worktrees -------------------------------------------------
+if want 23; then
+  echo "23: worktree projects"
+  R=$T/repo23
+  git init -q "$R" && git -C "$R" commit -q --allow-empty -m init
+  git -C "$R" worktree add -q "$T/repo23-34500" -b eng/ENG-34500-filters 2>/dev/null
+  cat >"$T/t23.lua" <<'LUA'
+local T = vim.env.T
+local projects = require("cockpit.projects")
+local R = T .. "/repo23"
+local plan = projects.worktree_plan(R, "ENG-35131", "slack-poc")
+assert(plan.path == R .. "-35131" and plan.branch == "eng/ENG-35131-slack-poc", vim.inspect(plan))
+vim.fn.mkdir(R .. "-35131", "p")
+assert(projects.worktree_plan(R, "ENG-35131", "slack-poc").path == R .. "-35131-slack-poc")
+assert(projects.worktree_plan(R, nil, "spike").path == R .. "-spike" and projects.worktree_plan(R, nil, "spike").branch == "eng/spike")
+vim.fn.delete(R .. "-35131", "d")
+local wts = projects.list_worktrees(R)
+assert(#wts == 1 and wts[1].path == vim.uv.fs_realpath(T .. "/repo23-34500") and wts[1].branch == "eng/ENG-34500-filters", vim.inspect(wts))
+-- New worktree, end to end through the prompts
+local selects = { "New worktree", R }
+local inputs = { "ENG-35131", "slack-poc", "" } -- key, slug, name (empty = slug)
+vim.ui.select = function(_, _, cb) cb(table.remove(selects, 1)) end
+vim.ui.input = function(_, cb) cb(table.remove(inputs, 1)) end
+local made
+projects.new(function(p) made = p end)
+assert(made and made.name == "slack-poc", vim.inspect(made))
+assert(made.repos[1] == R .. "-35131" and made.ticket == "ENG-35131", vim.inspect(made))
+local br = vim.trim(vim.system({ "git", "-C", R .. "-35131", "branch", "--show-current" }, { text = true }):wait().stdout)
+assert(br == "eng/ENG-35131-slack-poc", br)
+-- Existing worktrees: multi-select, ticket from the first one's branch
+selects = { "Existing worktrees", R, vim.uv.fs_realpath(T .. "/repo23-34500"), "✓ done" }
+inputs = { "contextdb-ui" }
+made = nil
+projects.new(function(p) made = p end)
+assert(made and made.name == "contextdb-ui" and made.ticket == "ENG-34500", vim.inspect(made))
+-- add-worktree appends to an existing project
+selects = { "New worktree", R }
+inputs = { "ENG-34501", "saved-views" }
+projects.add_worktree("contextdb-ui")
+local p = projects.get("contextdb-ui")
+assert(#p.repos == 2 and p.repos[2] == R .. "-34501", vim.inspect(p.repos))
+print("T23 OK")
+LUA
+  nlua "$T/t23.lua" 2>&1 | tee "$T/t23.out" | grep -q "T23 OK" || { cat "$T/t23.out"; fail "section 23"; }
+  ok "worktree_plan paths/branches; new-worktree and existing-worktrees projects; add-worktree appends"
+fi
+
 echo "model smoke: all requested sections passed"

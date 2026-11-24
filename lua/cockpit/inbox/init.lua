@@ -79,19 +79,21 @@ function M.setup()
     local projects = require("cockpit.projects")
     if o.fargs[1] == "edit" then
       projects.edit(o.fargs[2])
+    elseif o.fargs[1] == "add-worktree" then
+      projects.add_worktree(o.fargs[2])
     else
       projects.new()
     end
   end, {
     nargs = "*",
-    desc = "Cockpit project: new | edit [name]",
+    desc = "Cockpit project: new | edit [name] | add-worktree [name]",
     complete = function(_, line)
-      if line:match("edit%s+%S*$") then
+      if line:match("edit%s+%S*$") or line:match("add%-worktree%s+%S*$") then
         return vim.tbl_map(function(p)
           return p.name
         end, require("cockpit.projects").list())
       end
-      return { "new", "edit" }
+      return { "new", "edit", "add-worktree" }
     end,
   })
   vim.api.nvim_create_user_command("CockpitCleanup", function()
