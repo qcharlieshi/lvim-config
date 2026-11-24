@@ -155,6 +155,27 @@ local function fire()
   vim.api.nvim_exec_autocmds("User", { pattern = "CockpitAgents", modeline = false })
 end
 
+-- Persist each agent's Claude session id in the registry the first time we see it (and every new
+-- one after a /clear), so its transcript stays findable after the agent dies.
+local recorded = {} -- terminal_id -> session id already in the registry
+local function record_sessions()
+  local registry = require("cockpit.registry")
+  for _, a in pairs(cache) do
+    local tid, sid = a.terminal_id, a.session_id
+    if a.project and tid and sid and recorded[tid] ~= sid then
+      local rec = registry.all(a.project)[tid] or { terminal_id = tid, name = a.name, project = a.project }
+      local sessions = vim.deepcopy(rec.sessions or { rec.session })
+      if rec.session ~= sid or not rec.sessions then
+        if not vim.tbl_contains(sessions, sid) then
+          sessions[#sessions + 1] = sid
+        end
+        registry.append(a.project, vim.tbl_extend("force", rec, { session = sid, sessions = sessions }))
+      end
+      recorded[tid] = sid
+    end
+  end
+end
+
 local function apply(agents)
   local next_cache = {}
   for _, a in ipairs(agents or {}) do
@@ -170,10 +191,12 @@ local function apply(agents)
       terminal_id = a.terminal_id,
       cwd = a.cwd,
       title = a.terminal_title_stripped or a.terminal_title,
+      session_id = a.agent_session and a.agent_session.value or nil,
     }
   end
   if not vim.deep_equal(next_cache, cache) then
     cache = next_cache
+    record_sessions()
     fire()
   end
 end
@@ -478,6 +501,14 @@ end
 
 function M.interrupt(target)
   return (M.request("agent.send_keys", { target = target, keys = { "esc" } }))
+end
+
+-- Show the agent in the herdr TUI (no new client: herdr allows one direct attach per terminal)
+function M.focus(target)
+  M.request("agent.focus", { target = target }, function(err)
+    vim.notify(err and ("cockpit: focus failed — " .. (err.message or err.code)) or ("cockpit: " .. target .. " focused in herdr"),
+      err and vim.log.levels.ERROR or nil)
+  end)
 end
 
 -- tmux pane where cockpit-claude already has this agent attached (herdr allows one client per terminal)

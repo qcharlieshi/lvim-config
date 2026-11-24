@@ -69,13 +69,15 @@ Agent review inbox + agent runtime front end. Agents (Claude Code) post document
 | `scripts/cockpit-smoke-herdr.sh` | End-to-end smoke test against a scratch herdr session and temp dirs |
 | `lua/cockpit/herdr.lua` | The only nvim ↔ herdr code: NDJSON socket client, live agent cache, spawn/kill/interrupt/attach/prompt. Always uses explicit target ids, never `--current` (herdr #2900) |
 | `lua/cockpit/projects.lua` | Named repo sets; `for_dir()` maps a directory to a project, creating one if needed |
-| `lua/cockpit/registry.lua` | Per-project `agents.jsonl` |
+| `lua/cockpit/registry.lua` | Per-project `agents.jsonl`. `herdr.lua` records each live agent's Claude session id (`session`, history in `sessions`) on first sight and after a `/clear`, so dead agents keep their transcript |
+| `lua/cockpit/transcript.lua` | Claude transcript reader (`~/.claude/projects/*/<sid>.jsonl`): user/assistant text, one line per tool call, slash commands; skips subagent (sidechain) and meta lines. Incremental: re-reads only appended bytes |
 | `lua/cockpit/sessions.lua` | Read-only discovery of Claude sessions you started yourself in tmux (not run by herdr) |
 | `lua/cockpit/forks.lua` | `continue` / `worktree` forks of an agent's session (`--resume <id> --fork-session`) |
 | `lua/cockpit/profiles.lua` | Launch profiles picked on spawn/fork (model, effort, plugins, `--settings`…). Built-in `default` adds no flags; more in `~/.cockpit/profiles.json`. The picker is skipped while `default` is the only one; the choice is recorded as `profile` in `agents.jsonl` |
 | `lua/cockpit/inbox/store.lua` | Reads and writes the JSONL shared with the Python CLI; derives thread state; delivers replies |
 | `lua/cockpit/inbox/ui.lua` | The tab: rail (left) · workspace (deliverable) · thread (bottom); composer + notes float |
 | `lua/cockpit/inbox/rail.lua`, `tree.lua` | Rail rendering; `tree.lua` is the pure project → agent → fork → thread model |
+| `lua/cockpit/inbox/convo.lua` | Agent conversation view (rail `<CR>` on any agent, live or dead): its transcript(s) with its inbox posts and your replies interleaved by time; `r` chat composer sends through herdr `agent.prompt`. Refreshed on the cockpit's 3 s tick, keyed on transcript size/mtime |
 | `lua/cockpit/inbox/review.lua` | Diff deliverables in CodeDiff, rebuilt from the sent patch (never touches the agent's worktree) |
 
 ### File system (`~/.cockpit/`)
@@ -98,7 +100,7 @@ Logs are append-only JSONL and are never rewritten. All state (status, drafts, r
 │       ├── project.json        {name, repos[], created}; repos[0] is primary (spawn cwd), rest are --add-dir
 │       ├── repos/<basename>    symlink → repo (collision → <basename>-2)
 │       ├── threads/<tid>.jsonl symlink → inbox thread (browsing only; nothing reads through it)
-│       ├── agents.jsonl        {terminal_id, name, project, session, ts, dead?}; forks add fork ("continue"|"worktree"), parent_terminal, parent_name, worktrees[{repo, path, branch, base}]; latest line per terminal_id wins
+│       ├── agents.jsonl        {terminal_id, name, project, session, sessions[], ts, dead?}; forks add fork ("continue"|"worktree"), parent_terminal, parent_name, worktrees[{repo, path, branch, base}]; latest line per terminal_id wins
 │       └── names/<name>        O_EXCL name claims so two spawns can't take the same name
 ├── attached/<terminal_id>      $COCKPIT_ATTACH_DIR: tmux pane id where cockpit-claude has this herdr agent attached
 └── status/<session_id>.json    $COCKPIT_STATUS_DIR: status line input JSON saved by claude-statusline.sh (nix-darwin dotfiles)

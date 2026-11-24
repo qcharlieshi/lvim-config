@@ -536,33 +536,7 @@ local function open(buf, node)
   elseif node.kind ~= "agent" then
     return vim.cmd("silent! normal! za")
   end
-  if node.live then
-    local newest
-    for _, c in ipairs(node.children) do
-      if c.kind == "thread" and (not newest or (c.thread.last_ts or 0) > (newest.last_ts or 0)) then
-        newest = c.thread
-      end
-    end
-    return newest and open_thread(newest) or vim.notify("cockpit: " .. node.name .. " has no threads yet")
-  end
-  -- past agent: pick one of its archived threads
-  local list = vim.tbl_filter(function(t)
-    local o = t.owner and t.owner.herdr
-    return t.archived and o and o.terminal_id == node.terminal_id
-  end, store.threads())
-  if #list == 0 then
-    return vim.notify("cockpit: " .. node.name .. " has no archived threads")
-  end
-  vim.ui.select(list, {
-    prompt = node.name .. " · archived threads",
-    format_item = function(t)
-      return ("%s · %s"):format(t.title or t.id, util.ago(t.last_ts))
-    end,
-  }, function(t)
-    if t then
-      open_thread(t)
-    end
-  end)
+  ui().select_agent(node)
 end
 
 -- X: kill the agent's pane, archive the threads it owns, mark it dead in the registry.
@@ -630,10 +604,9 @@ local HELP = {
   "Agent / fork row (thread row: its agent)",
   "  X     kill + archive its threads",
   "  f F   fork (continue / worktree)",
-  "  i     interrupt      gt  attach",
+  "  i     interrupt      gt  focus in herdr   gT  attach (tmux)",
   "        (tmux sessions: no forks; X ends claude, pane stays)",
-  "  <CR>  open newest thread",
-  "        (past agent: archived threads)",
+  "  <CR>  conversation (transcript + posts, r chat)",
   "Thread row",
   "  <CR>  open          a  archive",
   "  u     toggle unread",
@@ -790,8 +763,14 @@ function M.attach(buf)
     if is_session(a) then
       return sessions.attach(a.agent.pane_id)
     end
+    herdr.focus(a.agent.target)
+  end, true), "Focus agent in herdr")
+  map(buf, "gT", with_agent(function(a)
+    if is_session(a) then
+      return sessions.attach(a.agent.pane_id)
+    end
     herdr.attach(a.agent.target)
-  end, true), "Attach to agent")
+  end, true), "Attach to agent (tmux)")
   map(buf, "gv", function()
     ui().flip_rail()
   end, "Rail: left column / top strip")

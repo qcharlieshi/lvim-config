@@ -15,12 +15,13 @@
 **Cockpit (`lua/cockpit/inbox/`, agents post via `scripts/cockpit_inbox.py`, pipelines via `--stage`):**
 
 - `<leader>ka` / `:Cockpit [id]`: one tab, three fixed windows — runs rail (left) · workspace (deliverable) · thread (bottom). `<leader>kz` hide/show rail · `<leader>kr` focus rail
-- Rail: `<CR>` load run · `a` archive · `u` unread · `g.` show archived · `R` refresh · `q` close cockpit. Pipeline runs show a stage strip `●─◉─○` and `stage rN`
+- Rail: `<CR>` on an agent opens its conversation (transcript + 📮 inbox posts; works with no threads and for dead agents, read-only) · `<CR>` on a thread loads the run · `a` archive · `u` unread · `g.` show archived · `R` refresh · `q` close cockpit. Pipeline runs show a stage strip `●─◉─○` and `stage rN`
 - Workspace (markdown is editable; edits are diffed against what was sent and go out with the reply): `ga` note (normal/visual) · `gD` delete note · `]a`/`[a` notes · `]d`/`[d` next/prev deliverable · `gp` vs previous round (CodeDiff) · `gR` revert edits · `gS` sent vs current file · `gA` approve · `gN` +notes · `gC` changes · `gX` reject · `gr` reply
 - Codediff deliverable: selecting a run whose current deliverable is a diff opens CodeDiff automatically (own tab; edit the right side, never the agent's worktree); the workspace shows a placeholder, `<CR>` there reopens · `gR` reset edits · `q` rail
 - Deliverables are the only listed buffers (lualine tabline shows bare file names); the rail/thread/composer buffers are unlisted. `<leader>ff` in `~/.cockpit/projects/*` follows the `repos/` symlinks
+- Conversation: `r` chat (float, `:w` sends via herdr) · `<CR>` on a 📮 post opens its thread · `gt` focus in herdr · `gT` attach · `i` interrupt · `q` rail. Follows the tail while the cursor is on the last line
 - Thread: `A` approve (with notes/edits if any) · `N` +notes · `C` changes · `X` reject · `r` reply · `1`–`9` pick option · `<CR>` open file / pick · `]f`/`[f` files · `q` rail · composer `:w` sends
-- Agents (herdr, `lua/cockpit/herdr.lua`): rail `s` spawn into a project · `A` agent picker (attach/interrupt/kill/prompt) · on a run: `X` kill its agent (confirm) · `i` interrupt · `gt` attach (jumps to the tmux pane `claude` already attached it in, else a new tmux window). Rail glyph = the run's agent: `◐` working · `⚠` blocked · `○` idle · `✕` offline
+- Agents (herdr, `lua/cockpit/herdr.lua`): rail `s` spawn into a project · `A` agent picker (focus/attach/interrupt/kill/prompt) · on a run: `X` kill its agent (confirm) · `i` interrupt · `gt` focus in the herdr TUI · `gT` attach in tmux (jumps to the pane `claude` already attached it in, else a new window). Rail glyph = the run's agent: `◐` working · `⚠` blocked · `○` idle · `✕` offline
 - `:CockpitSpawn [project]` · `:CockpitAgent` · `:CockpitProject new|edit [name]` (projects: `~/.cockpit/projects/<name>/project.json`, first repo = primary, rest = `--add-dir`)
 - `<leader>kb` / `:InboxBoard`: manual card board (legacy)
 
