@@ -57,7 +57,7 @@ All metrics displayed in lualine with color-coded thresholds (green/yellow/red).
 
 ## Cockpit (`lua/cockpit/`, `scripts/cockpit*`)
 
-Agent review inbox + agent runtime front end. Agents (Claude Code) post documents, diffs and questions; you review, edit, annotate and send a verdict from one nvim tab. Agents run headless in **herdr** (or as plain Claude sessions you started yourself in tmux). Keys: [keybindings.md](keybindings.md) → "Cockpit". Design history lives in git (removed `docs/superpowers/`); current state and Production gaps: [todo/cockpit-architecture-review.md](todo/cockpit-architecture-review.md).
+Agent review inbox + agent runtime front end. Agents (Claude Code) post documents, diffs and questions; you review, edit, annotate and send a verdict from one nvim tab. Agents run headless in **herdr**; Claude sessions you start yourself outside herdr aren't tracked. Keys: [keybindings.md](keybindings.md) → "Cockpit". Design history lives in git (removed `docs/superpowers/`); current state and Production gaps: [todo/cockpit-architecture-review.md](todo/cockpit-architecture-review.md).
 
 ### Modules
 
@@ -73,15 +73,15 @@ Agent review inbox + agent runtime front end. Agents (Claude Code) post document
 | `lua/cockpit/registry.lua` | Per-project `agents.jsonl`, keyed by Claude **session**: an agent is one conversation, not the pane it runs in. Each reconcile (`herdr.learn`) appends a record when a pane's session changes (`/clear`, restart), so the earlier conversation shows under Past with its own threads and transcript |
 | `lua/cockpit/ticket.lua` | Ticket keys for names: only configured prefixes count (`vim.g.cockpit_ticket_prefixes`, default `{ "ENG" }`), so `GPT-5` / `sha-256` never do. `for_dir()`: worktree branch, else `-<3+ digits>` in the dir name |
 | `lua/cockpit/transcript.lua` | Claude transcript reader (`~/.claude/projects/*/<sid>.jsonl`): user/assistant text, one line per tool call, slash commands; skips subagent (sidechain) and meta lines. Incremental: re-reads only appended bytes |
-| `lua/cockpit/sessions.lua` | Read-only discovery of Claude sessions you started yourself in tmux (not run by herdr) |
+| `lua/cockpit/sessions.lua` | Model / context / last words for herdr agents, from the statusline files in `~/.cockpit/status/` and their transcripts |
 | `lua/cockpit/forks.lua` | `continue` / `worktree` forks of an agent's session (`--resume <id> --fork-session`) |
 | `lua/cockpit/naming.lua` | Agent names `<project>-<label>` (= herdr name = tab label = `claude -n`). `herdr.name_base`: typed name › the ticket of the agent's dir or the project's `ticket` (`lilt-eng-35131`) › `naming.base` (ticket in the prompt, meaningful branch, prompt words). `herdr.free_name` falls back to `<project>-<n>` and adds `-2`, `-3`. A `<project>-<n>` agent is renamed once (agent + tab) when its session title names a ticket |
 | `lua/cockpit/profiles.lua` | Launch profiles picked on spawn/fork (model, effort, plugins, `--settings`…). Built-in `default` adds no flags; more in `~/.cockpit/profiles.json`. The picker is skipped while `default` is the only one; the choice is recorded as `profile` in `agents.jsonl` |
 | `lua/cockpit/inbox/store.lua` | Reads and writes the JSONL shared with the Python CLI; derives thread state. Events only, no transports |
-| `lua/cockpit/inbox/delivery.lua` | Reply delivery + outbox: herdr `agent.prompt` or tmux `send-keys`, retried until the agent has it |
+| `lua/cockpit/inbox/delivery.lua` | Reply delivery + outbox: herdr `agent.prompt`, retried until the agent has it |
 | `lua/cockpit/inbox/ui.lua` | The tab: rail (left) · workspace (deliverable) · thread (bottom); composer + notes float |
 | `lua/cockpit/inbox/rail.lua`, `tree.lua` | Rail rendering; `tree.lua` is the pure project → agent → fork → thread model |
-| `lua/cockpit/inbox/convo.lua` | Agent conversation view (rail `<CR>` on any agent, live or dead): its transcript(s) with its inbox posts and your replies interleaved by time; `r` chat composer sends through herdr `agent.prompt`. Refreshed on the cockpit's 3 s tick, keyed on transcript size/mtime |
+| `lua/cockpit/inbox/convo.lua` | Agent conversation view (rail `<CR>` on any agent, live or dead): its transcript(s) with its inbox posts and your replies interleaved by time; `r` chat composer sends through herdr `agent.prompt`. Refreshed on a 3 s tick while the cockpit is open, keyed on transcript size/mtime (the rail itself follows herdr and inbox events) |
 | `lua/cockpit/inbox/review.lua` | Diff deliverables in CodeDiff, rebuilt from the sent patch (never touches the agent's worktree) |
 
 ### File system (`~/.cockpit/`)
@@ -123,7 +123,7 @@ Logs are append-only JSONL and are never rewritten. All state (status, drafts, r
 | `annotation_deleted` | you | `target` |
 | `reply` | you | `verdict` (approve · approve_with_notes · changes_requested · reject · none), `text`, `answers[]`, `annotations[]` (the drafts it sends), `edits[{attachment, sha256, path, patch_sha256}]` (the patch body is in `blobs/`; older replies carry it inline as `patch`), `stage`, `round` |
 | `ack` | agent | `reply` (id the agent has read) |
-| `delivery` | you | `replies[]` (reply ids this attempt covers), `ok`, `via` (herdr · tmux · wait; absent when no agent was reachable), `target`, `detail` |
+| `delivery` | you | `replies[]` (reply ids this attempt covers), `ok`, `via` (herdr · wait; absent when no agent was reachable), `target`, `detail` |
 | `state` | you | `read`, `archived` |
 
 **Attachments**: `{name, sha256, type: "file"|"diff"}`. Files also carry `path`. Diffs also carry `base`, `base_sha` (resolved when posted), `head` and `cwd`.
@@ -154,15 +154,15 @@ Logs are append-only JSONL and are never rewritten. All state (status, drafts, r
   | 65 | nothing to post (empty diff) |
   | 66 | no such thread or card |
   | 70 | internal error (traceback on stderr) |
-- **Stop hook** (registered in `~/.claude/settings.json`): runs only in tmux or herdr sessions, and only when nobody is watching the agent's pane. A herdr agent counts as watched only while it's attached (marker in `attached/`) and that tmux pane is visible. Then:
+- **Stop hook** (registered in `~/.claude/settings.json`): runs only in herdr agents (a hand-started session posts nothing), and only when nobody is watching the agent's pane. A herdr agent counts as watched only while it's attached (marker in `attached/`) and that tmux pane is visible. Then:
   - If the turn changed files, the hook **blocks the stop** and tells the agent to `post` them.
   - Otherwise, if the last line of the agent's message ends in `?` (or the session is already replying to a thread), it posts that message itself.
 - **Reply delivery** (`delivery.lua`; `store.deliver` is a shim for `ui.send`). One prompt covers every undelivered reply of a thread. First match wins:
   - The agent is blocked in `wait` (fresh `waiting/<tid>`): it reads the reply itself (logged as `via = "wait"`).
   - The thread has a herdr session: `agent.prompt`, joined on `terminal_id`, but only while that pane still runs the thread's Claude session (after a `/clear` the reply waits). Never falls back to tmux for these.
-  - Otherwise, a one-line `tmux send-keys` to `session.tmux_pane`, but only while that pane hosts a live Claude session (`sessions.list()`), with the same `session_id` when the thread records one. Pane ids restart with the tmux server, so a bare pane id could be anyone's shell. The agent then runs `read <tid> --new`, which also appends the `ack`.
-  - The thread → agent join is `delivery.resolve(t)`, replaceable (e.g. to join on the Claude session id). Transports are `delivery.transports.{herdr,tmux}`.
-- **Outbox**: every attempt appends a `delivery` event. `delivery.flush()` retries undelivered replies of non-archived threads on `CockpitAgents` (agent cache changed), on inbox changes, and every 60 s (tmux panes emit no events):
+  - Otherwise (a legacy thread from a hand-started tmux session) nothing is sent: the agent can still run `read <tid> --new`, which also appends the `ack`. `:CockpitCleanup` archives these threads.
+  - The thread → agent join is `delivery.resolve(t)`, replaceable (e.g. to join on the Claude session id). The transport is `delivery.transports.herdr`.
+- **Outbox**: every attempt appends a `delivery` event. `delivery.flush()` retries undelivered replies of non-archived threads on `CockpitAgents` (agent cache changed), on inbox changes, and every 60 s (backoff retries need a clock):
   - Unreachable at send time (agent offline, no Claude in the pane): queued. Sent as soon as `resolve` finds the agent, if the reply is under 1 h old.
   - Reached once (`ok`): never sent again, acked or not.
   - The transport failed (e.g. agent at a dialog): retried with backoff 30 s, doubling, capped at 1 h, at most 8 tries.
@@ -175,7 +175,7 @@ Logs are append-only JSONL and are never rewritten. All state (status, drafts, r
 
 `scripts/test` (or `scripts/test py` / `scripts/test lua`) runs both suites in about 6 s with no herdr, no Claude, no tmux and no network:
 - **Python**: `uv run --no-project --with pytest pytest tests/python`. Tests import `scripts/cockpit_inbox.py` against a temp inbox (it reads env at import, so `conftest.py` reloads it), with `TMUX*`, `HERDR_*` and `CLAUDE_CODE_SESSION_ID` unset.
-- **Lua**: mini.test in headless nvim with `-u tests/minimal_init.lua` (this repo + mini.nvim from lazy's dir, else cloned into `.tests/deps/`). `tests/helpers.lua` gives each case a fresh inbox and reloads `cockpit.*`; herdr and tmux are faked.
+- **Lua**: mini.test in headless nvim with `-u tests/minimal_init.lua` (this repo + mini.nvim from lazy's dir, else cloned into `.tests/deps/`). `tests/helpers.lua` gives each case a fresh inbox and reloads `cockpit.*`; herdr is faked.
 - **Contract**: `tests/fixtures/threads/*.jsonl` and `expected.json` are asserted by both suites: Python pending replies, Lua `store.thread()` status / stage / round / drafts / open questions / unacked / undelivered. When the schema changes, add a fixture here first.
 
 ## Buffer Reuse Strategy

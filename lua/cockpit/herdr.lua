@@ -640,7 +640,8 @@ function M.attach(target)
   local argv = M.cli("agent", "attach", target)
   local pane = vim.env.TMUX and attached_pane(target)
   if pane then
-    return require("cockpit.sessions").attach(pane)
+    vim.system({ "tmux", "switch-client", "-t", pane }):wait()
+    return vim.system({ "tmux", "select-pane", "-t", pane }):wait()
   end
   if vim.env.TMUX then
     vim.system({ "tmux", "new-window", "-n", target, table.concat(vim.tbl_map(vim.fn.shellescape, argv), " ") })

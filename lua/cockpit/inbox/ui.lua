@@ -17,7 +17,8 @@ local ck = { last_att = {} } -- cockpit tab: tab, rail, work, thread (wins), tid
 local THREAD_H = 14
 -- rail geometry: a plain window — left column (width) or top strip (height); <C-w> resizes are remembered
 local rail_geo = { pos = "left", w = 50, h = 12 }
-local session_timer -- 3 s rail refresh while the cockpit is open (tmux sessions emit no events)
+-- 3 s conversation refresh while the cockpit is open (transcripts emit no events; the rail follows herdr + inbox)
+local convo_timer
 
 local STATUS = util.STATUS
 local STRIP = {
@@ -200,8 +201,8 @@ function M.close()
     return
   end
   require("cockpit.herdr").watch(false)
-  if session_timer then
-    session_timer:stop()
+  if convo_timer then
+    convo_timer:stop()
   end
   vim.api.nvim_set_current_tabpage(ck.tab)
   if #vim.api.nvim_list_tabpages() > 1 then
@@ -244,15 +245,12 @@ end
 -- Open (or jump to) the cockpit tab
 function M.open()
   require("cockpit.herdr").watch(true)
-  session_timer = session_timer or assert(vim.uv.new_timer())
-  session_timer:start(
+  convo_timer = convo_timer or assert(vim.uv.new_timer())
+  convo_timer:start(
     3000,
     3000,
     vim.schedule_wrap(function()
-      if valid(ck.rail) then
-        M.render_rail(M.rail_buf())
-        require("cockpit.inbox.convo").refresh()
-      end
+      require("cockpit.inbox.convo").refresh()
     end)
   )
   layout()

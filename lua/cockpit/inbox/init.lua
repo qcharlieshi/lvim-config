@@ -81,7 +81,7 @@ function M.setup()
       require("cockpit.inbox.delivery").flush()
     end,
   })
-  -- tmux sessions emit no events: a slow sweep catches a reply whose pane came back
+  -- a slow sweep runs the backoff retries (agent was at a dialog, ...)
   flush_timer = flush_timer or assert(vim.uv.new_timer())
   flush_timer:start(
     60000,

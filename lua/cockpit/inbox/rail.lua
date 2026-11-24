@@ -173,7 +173,7 @@ local function agent_card(node)
     right[#right + 1] = { " · " .. util.ago(math.max(node.recent or 0, s.ts or 0)), "Comment" }
   end
   local meta = {}
-  local model = s.model or (a.source ~= "session" and a.kind) or nil
+  local model = s.model or a.kind
   if model then
     meta[#meta + 1] = { model, "Special" }
   end
@@ -182,10 +182,8 @@ local function agent_card(node)
     meta[#meta + 1] = { " · " }
     vim.list_extend(meta, ctx)
   end
-  if a.source ~= "session" then
-    meta[#meta + 1] = { " · herdr " .. (a.name or ""), "Comment" }
-  end
-  local title = s.session_name and a.source ~= "session" and s.session_name or node.name
+  meta[#meta + 1] = { " · herdr " .. (a.name or ""), "Comment" }
+  local title = s.session_name or node.name
   local msg, msg_hl = agent_message(node)
   local cards = {}
   if W >= WIDE then
@@ -440,7 +438,7 @@ function M.render(buf)
   local nodes = require("cockpit.inbox.tree").build({ show_archived = show_archived })
   local lines, marks, map, rows, levels, parts_by = {}, {}, {}, {}, {}, {}
   for _, node in ipairs(nodes) do
-    if node.kind == "agent" and node.live and node.agent.source ~= "session" then
+    if node.kind == "agent" and node.live then
       if node.status == "blocked" then
         if detail[node.terminal_id] == nil then
           fetch_detail(node.terminal_id, node.agent.target)
@@ -589,13 +587,7 @@ function M.kill_agent(node, opts)
   if vim.fn.confirm(opts.prompt or msg, "&Yes\n&No", 2) ~= 1 then
     return
   end
-  if a and a.source == "session" then
-    -- hand-started tmux session: end Claude, leave the pane and its shell
-    local ok, err = vim.uv.kill(a.session.pid, "sigterm")
-    if not ok and err then
-      return vim.notify("cockpit: kill failed — " .. err, vim.log.levels.ERROR)
-    end
-  elseif a then
+  if a then
     local err = herdr.kill(a.target)
     if err then
       return vim.notify("cockpit: kill failed — " .. err.message, vim.log.levels.ERROR)
@@ -624,7 +616,7 @@ end
 -- N: end this conversation and start a fresh one in a new tab, same project and dir (the replacement for /clear)
 function M.fresh_agent(node)
   local a = node.live and node.agent
-  if not a or a.source == "session" then
+  if not a then
     return vim.notify("cockpit: fresh needs a live herdr agent")
   end
   local project = (node.rec and node.rec.project) or a.project
@@ -682,7 +674,6 @@ local HELP = {
   "  m     move to project",
   "  f F   fork (continue / worktree)",
   "  i     interrupt      gt  focus in herdr   gT  attach (tmux)",
-  "        (tmux sessions: no forks; X ends claude, pane stays)",
   "  <CR>  conversation (transcript + posts, r chat)",
   "Thread row",
   "  <CR>  open          a  archive",
@@ -707,24 +698,11 @@ function M.cleanup()
       vim.log.levels.WARN
     )
   end
-  local panes
-  local function pane_alive(p)
-    if not panes then
-      panes = {}
-      for _, id in ipairs(vim.fn.systemlist({ "tmux", "list-panes", "-a", "-F", "#{pane_id}" })) do
-        panes[id] = true
-      end
-    end
-    return panes[p]
-  end
   local live_sessions = {}
   for _, a in pairs(herdr.agents()) do
     if a.session_id then
       live_sessions[a.session_id] = true
     end
-  end
-  for _, s in ipairs(require("cockpit.sessions").list()) do
-    live_sessions[s.session_id or ""] = true
   end
   local cands = vim.tbl_filter(function(t)
     if t.archived then
@@ -738,8 +716,8 @@ function M.cleanup()
     if h then
       return h.terminal_id ~= nil and herdr.by_terminal(h.terminal_id) == nil
     end
-    local p = t.session and t.session.tmux_pane
-    return p ~= nil and not pane_alive(p)
+    -- a hand-started (tmux) session's thread: nothing can reach it any more
+    return t.session and t.session.tmux_pane ~= nil
   end, store.threads())
   if #cands == 0 then
     return vim.notify("cockpit: nothing to clean up")
@@ -797,22 +775,11 @@ function M.attach(buf)
       end
     end,
   })
-  local sessions = require("cockpit.sessions")
-  local function is_session(a)
-    return a.agent and a.agent.source == "session"
-  end
-  -- herdr_only: fork/kill need herdr; a hand-started tmux session can't take them
-  local function with_agent(fn, live, herdr_only)
+  local function with_agent(fn, live)
     return function()
       local a = agent_of(buf, cursor_node(buf))
       if not a or (live and not a.live) then
         return vim.notify("cockpit: no " .. (live and "live " or "") .. "agent on this row", vim.log.levels.WARN)
-      end
-      if herdr_only and is_session(a) then
-        return vim.notify(
-          "cockpit: " .. a.name .. " runs in tmux pane " .. a.agent.pane_id .. ", not herdr — gt to go there",
-          vim.log.levels.WARN
-        )
       end
       fn(a)
     end
@@ -829,9 +796,9 @@ function M.attach(buf)
   map(buf, "<CR>", function()
     open(buf, cursor_node(buf))
   end, "Open")
-  map(buf, "X", with_agent(M.kill_agent, false, false), "Kill agent")
-  map(buf, "N", with_agent(M.fresh_agent, true, true), "Fresh conversation (new tab, same dir)")
-  map(buf, "m", with_agent(M.move_agent, false, false), "Move agent to project")
+  map(buf, "X", with_agent(M.kill_agent, false), "Kill agent")
+  map(buf, "N", with_agent(M.fresh_agent, true), "Fresh conversation (new tab, same dir)")
+  map(buf, "m", with_agent(M.move_agent, false), "Move agent to project")
   local function fork(kind)
     return function(a)
       local p = a.agent.project and require("cockpit.registry").all(a.agent.project)[a.agent.terminal_id]
@@ -852,15 +819,12 @@ function M.attach(buf)
       end, p and p.profile)
     end
   end
-  map(buf, "f", with_agent(fork("continue"), true, true), "Fork agent (continue)")
-  map(buf, "F", with_agent(fork("worktree"), true, true), "Fork agent (worktree)")
+  map(buf, "f", with_agent(fork("continue"), true), "Fork agent (continue)")
+  map(buf, "F", with_agent(fork("worktree"), true), "Fork agent (worktree)")
   map(
     buf,
     "i",
     with_agent(function(a)
-      if is_session(a) then
-        return sessions.interrupt(a.agent.pane_id)
-      end
       herdr.interrupt(a.agent.target)
     end, true),
     "Interrupt agent"
@@ -869,9 +833,6 @@ function M.attach(buf)
     buf,
     "gt",
     with_agent(function(a)
-      if is_session(a) then
-        return sessions.attach(a.agent.pane_id)
-      end
       herdr.focus(a.agent.target)
     end, true),
     "Focus agent in herdr"
@@ -880,9 +841,6 @@ function M.attach(buf)
     buf,
     "gT",
     with_agent(function(a)
-      if is_session(a) then
-        return sessions.attach(a.agent.pane_id)
-      end
       herdr.attach(a.agent.target)
     end, true),
     "Attach to agent (tmux)"

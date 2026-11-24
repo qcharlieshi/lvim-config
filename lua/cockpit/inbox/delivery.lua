@@ -1,4 +1,4 @@
--- cockpit reply delivery: gets each sent reply to its agent (herdr agent.prompt, else its tmux pane) and keeps
+-- cockpit reply delivery: gets each sent reply to its herdr agent (agent.prompt) and keeps
 -- trying until it lands. store.lua only records events; this is the one module that talks to transports.
 --
 -- Outbox: a reply is pending until the agent acks it (`cockpit_inbox.py read --new` / `wait`). Each attempt is
@@ -6,7 +6,7 @@
 --   ok = true            the agent has it (prompt accepted, or it was blocked in `wait`): never sent again
 --   ok = false, no via   no reachable agent at send time: queued until one turns up, for FRESH at most
 --   ok = false, via      the transport failed (agent at a dialog, ...): retried with backoff, MAX_TRIES at most
--- flush() runs on agent changes (CockpitAgents), inbox changes and a slow timer (tmux panes emit nothing).
+-- flush() runs on agent changes (CockpitAgents), inbox changes and a slow timer (backoff retries need a clock).
 -- One prompt covers every pending reply of a thread, since `read --new` prints them all. Several nvims may
 -- flush at once: an attempt is claimed with an O_EXCL file in outbox/ before it's made.
 local store = require("cockpit.inbox.store")
@@ -30,42 +30,25 @@ function M.agent_waiting(tid)
   return stat ~= nil and M.now() - stat.mtime.sec < 10
 end
 
--- The live Claude session in a tmux pane. A pane id alone isn't enough: ids restart at %0 with the tmux server,
--- so a queued reply's pane may now be a shell or an editor. When the thread names its session, that must match.
-local function claude_in(pane, sid)
-  for _, s in ipairs(require("cockpit.sessions").list()) do
-    if s.pane == pane and (not sid or s.session_id == sid) then
-      return s
-    end
-  end
-end
-
 -- resolve(t) -> { via = <transport>, target } | nil, why: the thread's live agent. Swap it to join threads to
 -- agents differently (e.g. on the Claude session id).
 function M.default_resolve(t)
   local hid = t.session and t.session.herdr
-  if hid then
-    -- terminal_id, not pane_id: pane ids restart with the herdr server
-    local agent = require("cockpit.herdr").by_terminal(hid.terminal_id)
-    -- the pane may run a newer conversation now (/clear): never type a reply into the wrong one
-    local sid = store.owner_session(t) or hid.session_id
-    if agent and sid and agent.session_id and agent.session_id ~= sid then
-      return nil, "that conversation ended (another one runs in its pane); reply queued until it's back"
-    end
-    if agent then
-      return { via = "herdr", target = agent.target }
-    end
-    -- never fall through to tmux: a tmux_pane on a herdr thread is leaked env, i.e. someone else's pane
-    return nil, "agent offline; reply queued until it's back"
+  if not hid then
+    -- hand-started (tmux) sessions aren't reachable any more; the agent can still pull the reply itself
+    return nil, "no herdr agent; it can run `read " .. t.id .. " --new`"
   end
-  local pane = t.session and t.session.tmux_pane
-  if not pane then
-    return nil, "no agent pane; it can run `read " .. t.id .. " --new`"
+  -- terminal_id, not pane_id: pane ids restart with the herdr server
+  local agent = require("cockpit.herdr").by_terminal(hid.terminal_id)
+  -- the pane may run a newer conversation now (/clear): never type a reply into the wrong one
+  local sid = store.owner_session(t) or hid.session_id
+  if agent and sid and agent.session_id and agent.session_id ~= sid then
+    return nil, "that conversation ended (another one runs in its pane); reply queued until it's back"
   end
-  if not claude_in(pane, t.session.session_id) then
-    return nil, "no Claude session in pane " .. pane .. " any more; reply queued until it's back"
+  if agent then
+    return { via = "herdr", target = agent.target }
   end
-  return { via = "tmux", target = pane }
+  return nil, "agent offline; reply queued until it's back"
 end
 M.resolve = M.default_resolve
 
@@ -73,16 +56,6 @@ M.resolve = M.default_resolve
 M.transports = {
   herdr = function(target, msg)
     return require("cockpit.herdr").prompt(target, msg)
-  end,
-  tmux = function(pane, msg)
-    local r = vim.system({ "tmux", "send-keys", "-t", pane, "-l", msg }):wait()
-    if r.code == 0 then
-      r = vim.system({ "tmux", "send-keys", "-t", pane, "Enter" }):wait()
-    end
-    if r.code ~= 0 then
-      return "tmux send-keys to " .. pane .. " failed", false
-    end
-    return "delivered to pane " .. pane, true
   end,
 }
 

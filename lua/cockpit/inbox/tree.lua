@@ -3,7 +3,7 @@
 -- conversations shows the live one, and the earlier ones under Past.
 --
 -- tree.build(opts?) -> Node[]  (flat, depth-first, display order; every node also keeps its own `children`)
---   opts: show_archived?, threads?, agents?, sessions?, herdr_status?, registry?, projects?   (fixtures; absent => live sources)
+--   opts: show_archived?, threads?, agents?, herdr_status?, registry?, projects?   (fixtures; absent => live sources)
 --   opts.registry fixture shape: table<project, table<key, Rec>>  (live: registry.all(project) per project)
 --
 -- Node fields (all nodes): kind = "header"|"project"|"agent"|"thread"|"past"|"unassigned", key, depth (0-based)
@@ -26,21 +26,6 @@ local RANK = { needs_you = 1, unread = 2, working = 3, replied = 4, read = 5, do
 -- the Claude session that owns a thread, or nil (legacy thread nobody attributed)
 function M.owner_key(t)
   return require("cockpit.inbox.store").owner_session(t)
-end
-
-local SESSION_STATUS = { busy = "working", waiting = "blocked", idle = "idle" }
-
--- defined project whose repo contains cwd (longest repo path wins), else the cwd basename as a group
-local function project_for_cwd(cwd, plist)
-  local best, len = nil, -1
-  for _, p in ipairs(plist) do
-    for _, r in ipairs(p.repos or {}) do
-      if (cwd == r or cwd:sub(1, #r + 1) == r .. "/") and #r > len then
-        best, len = p.name, #r
-      end
-    end
-  end
-  return best or (cwd and vim.fs.basename(cwd)) or nil
 end
 
 -- urgency tier: lower sorts first
@@ -196,22 +181,6 @@ function M.build(opts)
       end
       live[a.session_id or ("term:" .. a.terminal_id)] = a
     end
-  end
-  -- hand-started Claude sessions in tmux panes, shaped like a herdr entry
-  for _, s in ipairs(opts.sessions or (fixture and {} or require("cockpit.sessions").list())) do
-    live[s.session_id or ("cc:" .. s.pid)] = {
-      name = s.name,
-      target = s.pane,
-      kind = "claude",
-      source = "session",
-      session = s,
-      session_id = s.session_id,
-      project = project_for_cwd(s.cwd, plist),
-      status = SESSION_STATUS[s.status] or s.status or "unknown",
-      pane_id = s.pane,
-      terminal_id = "cc:" .. s.pid,
-      cwd = s.cwd,
-    }
   end
 
   -- project names: defined projects plus any referenced by live agents

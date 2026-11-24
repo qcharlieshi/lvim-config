@@ -34,7 +34,7 @@ Storage ($COCKPIT_INBOX_DIR, default ~/.cockpit/inbox):
     threads/<id>.jsonl   events: message · reply · annotation · annotation_deleted · state · ack · delivery
     blobs/<sha256>       attachment bytes as sent, so annotations pin to what was reviewed
     turns/<session>.json repo states at the session's latest prompt (head, stash-create snap, untracked)
-    waiting/<id>         heartbeat while an agent blocks in `wait` (nvim skips tmux delivery)
+    waiting/<id>         heartbeat while an agent blocks in `wait` (nvim skips prompt delivery)
     cards.jsonl          board card snapshots, latest line per card wins
     feedback.jsonl       why-tagged steer ledger, written by nvim on send
 """
@@ -705,14 +705,12 @@ def hook_stop(payload):
       last line ends with '?' -> allow, posting it as a question
       anything else (status chatter) -> allow, posting nothing
     """
-    tmux_pane = os.environ.get("TMUX_PANE")
-    pane = tmux_pane or os.environ.get("HERDR_PANE_ID")
-    if not pane or os.environ.get("COCKPIT_INBOX_HOOK") == "0" or payload.get("stop_hook_active"):
+    # herdr agents only: a hand-started session has no cockpit agent to own its threads
+    if not os.environ.get("HERDR_PANE_ID") or os.environ.get("COCKPIT_INBOX_HOOK") == "0" or payload.get("stop_hook_active"):
         return None
     # herdr panes are headless: watched only while a `claude` launcher has it attached in a tmux pane
     # (attach marker), and then exactly when that tmux pane is
-    if not tmux_pane:
-        tmux_pane = attached_tmux_pane()
+    tmux_pane = attached_tmux_pane()
     if tmux_pane and watching(tmux_pane):
         return None
     posted, edited, reply_thread = turn_activity(payload.get("transcript_path"))

@@ -40,7 +40,7 @@ Every ticket is measured against PERF-0 before and after. A ticket is done only 
   - `forks.start` (git worktree add, `free_name`).
 - **Delivery goes async.** `delivery.attempt` takes a callback, and the transports return through it. `ui.send` reports "sent · delivering…" and `delivery` notifies the result. The outbox makes this safe: the reply is on disk before any transport runs, and a crash mid-delivery leaves a queued reply that `flush` picks up.
   - Watch `delivery.deliver`'s return value: smoke section 5 asserts on it, so it would change to a callback.
-- **tmux discovery moves off the render path.** One async `tmux list-panes -a -F '#{pane_id}\t#{pane_title}'` per 3 s tick fills a pane cache. `sessions.pane_titles`, `rail.cleanup`'s `pane_alive` and `sessions.list()` (which delivery's tmux route uses) read the cache, and render never spawns a process.
+- ~~**tmux discovery moves off the render path.**~~ Obsolete: hand-started tmux session support is gone (only herdr.lua's attach marker still runs `tmux list-panes`, on `gT`). One async `tmux list-panes -a -F '#{pane_id}\t#{pane_title}'` per 3 s tick fills a pane cache. `sessions.pane_titles`, `rail.cleanup`'s `pane_alive` and `sessions.list()` (which delivery's tmux route uses) read the cache, and render never spawns a process.
   - `sessions.attach`/`interrupt` and the tmux transport use `vim.system` with `on_exit`.
 
 **Files:** `lua/cockpit/herdr.lua`, `forks.lua`, `sessions.lua`, `inbox/delivery.lua`, `inbox/rail.lua` (cleanup), `inbox/ui.lua` (send / agent picker callers only), `scripts/cockpit-smoke-herdr.sh` (section 5 expectations).

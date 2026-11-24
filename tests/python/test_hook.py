@@ -67,7 +67,8 @@ def test_turn_activity_unreadable(ck):
 
 @pytest.fixture
 def hook(ck, monkeypatch, env):
-    monkeypatch.setenv("TMUX_PANE", "%999")
+    monkeypatch.setenv("HERDR_PANE_ID", "w1:p1")
+    monkeypatch.setattr(ck, "attached_tmux_pane", lambda: "%999")
     monkeypatch.setattr(ck, "watching", lambda pane: False)
     diffs = []
     monkeypatch.setattr(ck, "turn_diffs", lambda *a, **k: diffs)
@@ -84,8 +85,10 @@ def threads(ck):
     return sorted(p.stem for p in ck.THREADS.glob("*.jsonl")) if ck.THREADS.exists() else []
 
 
-def test_hook_needs_a_pane(ck, monkeypatch, transcript):
-    monkeypatch.delenv("TMUX_PANE", raising=False)
+def test_hook_ignores_hand_started_sessions(ck, monkeypatch, transcript):
+    # a tmux pane alone (no herdr) has no cockpit agent: its threads would only land in *unassigned*
+    monkeypatch.setenv("TMUX_PANE", "%999")
+    monkeypatch.setattr(ck, "watching", lambda pane: False)
     assert ck.hook_stop({"transcript_path": transcript(user("x")), "last_assistant_message": "Which?"}) is None
     assert threads(ck) == []
 

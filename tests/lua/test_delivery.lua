@@ -1,19 +1,13 @@
--- Reply delivery + outbox (review 0.4). herdr and tmux are faked: nothing leaves this process.
+-- Reply delivery + outbox (review 0.4). herdr is faked: nothing leaves this process.
 local h = require("tests.helpers")
 local eq = MiniTest.expect.equality
-local live, calls, claude_sessions
+local live, calls
 
 local T = MiniTest.new_set({
   hooks = {
     pre_case = function()
       h.fresh()
-      live, calls, claude_sessions = {}, {}, {}
-      -- live hand-started Claude sessions, shaped like sessions.list()
-      package.loaded["cockpit.sessions"] = {
-        list = function()
-          return claude_sessions
-        end,
-      }
+      live, calls = {}, {}
       package.loaded["cockpit.herdr"] = {
         start = function() end,
         agents = function()
@@ -186,51 +180,13 @@ T["an agent blocked in wait reads it itself"] = function()
   eq(thread("t1").undelivered, {})
 end
 
-local function tmux_spy(delivery)
-  local sent = {}
-  delivery.transports.tmux = function(pane, msg)
-    sent[#sent + 1] = { pane, msg }
-    return "delivered to pane " .. pane, true
-  end
-  return sent
-end
-
-T["tmux threads: no Claude in the pane queues, the session coming back gets send-keys"] = function()
+T["a hand-started (tmux) thread is never delivered; the agent can pull the reply"] = function()
   local delivery = require("cockpit.inbox.delivery")
-  local sent = tmux_spy(delivery)
-  post("t1", { agent = "claude", tmux_pane = "%7" })
-  reply("t1")
-  MiniTest.expect.no_equality(delivery.deliver(thread("t1")):find("queued", 1, true), nil)
-  eq(#sent, 0)
-  claude_sessions[1] = { pid = 1, session_id = "sid-1", pane = "%7" }
-  delivery.flush()
-  eq(#sent, 1)
-  eq(sent[1][1], "%7")
-end
-
-T["a queued reply is never typed into a reused pane id without a Claude session"] = function()
-  -- tmux pane ids restart at %0 with the server: after a restart %7 can be a plain shell or an nvim
-  local delivery = require("cockpit.inbox.delivery")
-  local sent = tmux_spy(delivery)
-  post("t1", { agent = "claude", tmux_pane = "%7" })
-  reply("t1")
-  delivery.deliver(thread("t1"))
-  delivery.flush()
-  eq(#sent, 0)
-end
-
-T["a queued reply is never typed into a pane now running another Claude session"] = function()
-  local delivery = require("cockpit.inbox.delivery")
-  local sent = tmux_spy(delivery)
   post("t1", { agent = "claude", tmux_pane = "%7", session_id = "sid-A" })
   reply("t1")
-  claude_sessions[1] = { pid = 2, session_id = "sid-B", pane = "%7" }
-  delivery.deliver(thread("t1"))
-  delivery.flush()
-  eq(#sent, 0)
-  claude_sessions[1] = { pid = 3, session_id = "sid-A", pane = "%7" }
-  delivery.flush()
-  eq(#sent, 1)
+  MiniTest.expect.no_equality(delivery.deliver(thread("t1")):find("no herdr agent", 1, true), nil)
+  eq(delivery.transports.tmux, nil)
+  eq(#calls, 0)
 end
 
 T["a queued reply expires after FRESH"] = function()
@@ -246,20 +202,6 @@ T["a queued reply expires after FRESH"] = function()
   live["term-a"] = { target = "agent-1", terminal_id = "term-a" }
   delivery.flush()
   eq(#calls, 0)
-end
-
-T["herdr threads never fall back to tmux"] = function()
-  local delivery = require("cockpit.inbox.delivery")
-  local sent = 0
-  claude_sessions[1] = { pid = 1, session_id = "sid-1", pane = "%1" }
-  delivery.transports.tmux = function()
-    sent = sent + 1
-    return "x", true
-  end
-  post("t1", { agent = "claude", herdr = { terminal_id = "gone" }, tmux_pane = "%1" })
-  reply("t1")
-  MiniTest.expect.no_equality(delivery.deliver(thread("t1")):find("offline", 1, true), nil)
-  eq(sent, 0)
 end
 
 T["deliver on a thread that doesn't exist says so (smoke 7 passes a bare thread table)"] = function()

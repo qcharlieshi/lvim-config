@@ -51,7 +51,6 @@ local function session_ids(node, threads)
   end
   add(rec.session)
   add(a.session_id)
-  add(a.source == "session" and a.session and a.session.session_id or nil)
   for _, t in ipairs(threads) do
     add(t.id:match("^session%-(%x+)$"))
   end
@@ -261,12 +260,6 @@ function M.compose(tid)
       vim.log.levels.WARN
     )
   end
-  if node.agent.source == "session" then
-    return vim.notify(
-      "cockpit: " .. node.name .. " runs in a tmux pane, not herdr — gt to go there",
-      vim.log.levels.WARN
-    )
-  end
   local name = "cockpit://agent/" .. tid .. "/chat"
   local buf = util.scratch(name, "markdown", "acwrite")
   if not vim.b[buf].cockpit_chat then
@@ -333,31 +326,30 @@ function M.buf(tid, node)
       if not (n and n.live) then
         return vim.notify("cockpit: agent isn't running", vim.log.levels.WARN)
       end
-      local herdr, sessions = require("cockpit.herdr"), require("cockpit.sessions")
-      fn(n, herdr, sessions, n.agent.source == "session")
+      fn(n, require("cockpit.herdr"))
     end
   end
   map(
     buf,
     "gt",
-    live_herdr(function(n, herdr, sessions, tmux)
-      return tmux and sessions.attach(n.agent.pane_id) or herdr.focus(n.agent.target)
+    live_herdr(function(n, herdr)
+      herdr.focus(n.agent.target)
     end),
     "Focus agent in herdr"
   )
   map(
     buf,
     "gT",
-    live_herdr(function(n, herdr, sessions, tmux)
-      return tmux and sessions.attach(n.agent.pane_id) or herdr.attach(n.agent.target)
+    live_herdr(function(n, herdr)
+      herdr.attach(n.agent.target)
     end),
     "Attach to agent (tmux)"
   )
   map(
     buf,
     "i",
-    live_herdr(function(n, herdr, sessions, tmux)
-      return tmux and sessions.interrupt(n.agent.pane_id) or herdr.interrupt(n.agent.target)
+    live_herdr(function(n, herdr)
+      herdr.interrupt(n.agent.target)
     end),
     "Interrupt agent"
   )

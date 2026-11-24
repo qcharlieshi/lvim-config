@@ -8,9 +8,9 @@ file when the list is done.
   `scripts/cockpit-spawn.lua`): `claude` goes back to plain Claude; spawn with rail `s` / `:CockpitSpawn`.
   Also drops `~/.cockpit/attached/`, `herdr.attach`'s attached-pane jump (`gT`) and the Stop hook's
   attached-marker "watched" check (replace with: watched = focused in the herdr TUI, `agent.get().focused`).
-- [ ] **Remove hand-started tmux session support**: `sessions.list()` discovery, `cc:<pid>` agent keys in
+- [x] **Remove hand-started tmux session support**: `sessions.list()` discovery, `cc:<pid>` agent keys in
   `tree.lua`, tmux `send-keys` delivery in `store.deliver`, tmux interrupt/attach branches in rail/convo, and the
-  3 s rail timer (keep a convo refresh: fs watch on the open transcript). Old `cc:` threads fall to *unassigned*.
+  3 s rail timer (convo kept a 3 s stat-keyed tick rather than an fs watch). Old `cc:` threads fall to *unassigned*; the Stop hook no longer posts from them.
 - [ ] **Threads become sessions on disk**: `cockpit_inbox.py post` without `--thread` appends to
   `session-<sid8>` (the Stop hook's id) instead of creating a titled thread; `--title` labels the message.
   Then the rail drops thread rows under agents (status/📎/? counts move onto the agent card) and the

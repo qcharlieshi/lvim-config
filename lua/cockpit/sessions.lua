@@ -1,13 +1,8 @@
--- cockpit ↔ hand-started Claude Code sessions (not owned by herdr). Read-only discovery from files
--- Claude Code already writes:
---   ~/.claude/sessions/<pid>.json   name, cwd, tmux pane, status (idle|busy|waiting), waitingFor
---   ~/.cockpit/status/<sid>.json    statusline input (claude-statusline.sh): model, context_window
+-- cockpit ↔ Claude Code session details for herdr agents, read from files Claude Code already writes:
+--   ~/.cockpit/status/<sid>.json    statusline input (claude-statusline.sh): model, context_window, herdr_pane
 --   transcript jsonl                last assistant text (+ model/usage fallback when no status file yet)
--- Only sessions with a tmux pane are listed: herdr strips TMUX from its panes, so its agents never
--- show up twice.
 local M = {}
 
-local SESSIONS = vim.fn.expand("~/.claude/sessions")
 local STATUS = vim.fn.expand(vim.env.COCKPIT_STATUS_DIR or "~/.cockpit/status")
 local TAIL = 256 * 1024
 
@@ -22,14 +17,6 @@ local function read_json(path)
   f:close()
   local ok, v = pcall(vim.json.decode, s, { luanil = { object = true, array = true } })
   return ok and type(v) == "table" and v or nil
-end
-
-local function alive(pid)
-  return pid and vim.uv.kill(pid, 0) == 0
-end
-
-local function transcript_path(cwd, sid)
-  return vim.fn.expand("~/.claude/projects/") .. cwd:gsub("[^%w]", "-") .. "/" .. sid .. ".jsonl"
 end
 
 -- last assistant text + model/usage from the transcript tail; cached by mtime:size
@@ -100,53 +87,6 @@ local function plain(t)
   return t
 end
 
--- pane id -> title Claude sets (its session topic), minus the leading status glyph
-local function pane_titles()
-  local out = {}
-  for _, l in ipairs(vim.fn.systemlist({ "tmux", "list-panes", "-a", "-F", "#{pane_id}\t#{pane_title}" })) do
-    local id, title = l:match("^(%%%d+)\t(.*)$")
-    if id then
-      title = vim.trim(title:gsub("^[^%w]+", ""))
-      if title ~= "" and title ~= "Claude Code" then
-        out[id] = title
-      end
-    end
-  end
-  return out
-end
-
--- Live sessions: list of { pid, session_id, name, cwd, pane, status, waiting, ts, model, ctx_pct, tokens, ctx_size, text }
-function M.list()
-  local out, titles = {}, nil
-  for _, path in ipairs(vim.fn.glob(SESSIONS .. "/*.json", false, true)) do
-    local s = read_json(path)
-    local pane = s and s.tmux and s.tmux:match("(%%%d+)$")
-    if s and pane and alive(s.pid) then
-      local st = read_json(STATUS .. "/" .. s.sessionId .. ".json") or {}
-      local tpath = st.transcript_path or transcript_path(s.cwd or "", s.sessionId)
-      local tr = transcript(tpath)
-      local cw = st.context_window or {}
-      titles = titles or pane_titles()
-      out[#out + 1] = {
-        pid = s.pid,
-        session_id = s.sessionId,
-        name = st.session_name or titles[pane] or s.name or tostring(s.pid),
-        cwd = s.cwd,
-        pane = pane,
-        status = s.status,
-        waiting = s.waitingFor,
-        ts = math.floor((s.statusUpdatedAt or s.updatedAt or 0) / 1000),
-        model = (st.model and st.model.display_name) or short_model(tr.model),
-        ctx_pct = cw.used_percentage,
-        ctx_size = cw.context_window_size,
-        tokens = tr.tokens,
-        text = plain(tr.text),
-      }
-    end
-  end
-  return out
-end
-
 local STALE = 7 * 86400 -- status files untouched this long are deleted
 local scache = {} -- status path -> { mtime, json }
 
@@ -183,16 +123,6 @@ function M.by_herdr_pane()
     end
   end
   return out
-end
-
--- tmux helpers (these panes live in the outer tmux, not in herdr)
-function M.attach(pane)
-  vim.system({ "tmux", "switch-client", "-t", pane }):wait()
-  vim.system({ "tmux", "select-pane", "-t", pane }):wait()
-end
-
-function M.interrupt(pane)
-  vim.system({ "tmux", "send-keys", "-t", pane, "Escape" }):wait()
 end
 
 return M
