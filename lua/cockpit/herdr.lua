@@ -602,14 +602,18 @@ function M.interrupt(target)
   return (M.request("agent.send_keys", { target = target, keys = { "esc" } }))
 end
 
--- Show the agent in the herdr TUI (no new client: herdr allows one direct attach per terminal)
+-- Show the agent in the herdr TUI (no new client: herdr allows one direct attach per terminal),
+-- zoomed so its tab's other panes don't crowd it; herdr's zoom toggle brings them back
 function M.focus(target)
   M.request("agent.focus", { target = target }, function(err)
-    vim.notify(
-      err and ("cockpit: focus failed — " .. (err.message or err.code))
-        or ("cockpit: " .. target .. " focused in herdr"),
-      err and vim.log.levels.ERROR or nil
-    )
+    if err then
+      return vim.notify("cockpit: focus failed — " .. (err.message or err.code), vim.log.levels.ERROR)
+    end
+    local a = cache[target]
+    if a and a.pane_id then
+      M.request("pane.zoom", { pane_id = a.pane_id, mode = "on" })
+    end
+    vim.notify("cockpit: " .. target .. " focused in herdr")
   end)
 end
 
