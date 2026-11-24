@@ -14,13 +14,17 @@ Usage:
 Pipelines: one thread per run. Every post carries the stage it delivers (--stage); the first
 post names the pipeline and its ordered stages. A stage post always gates: the run never moves
 on until the human approves. Each post to a stage is a new round of that stage.
-    cockpit_inbox.py wait ID [--timeout S]   exit 0 approved/replied, 1 changes requested, 2 rejected, 3 timeout
+    cockpit_inbox.py wait ID [--timeout S]   block until the human replies (exit codes below)
     cockpit_inbox.py read ID [--new]         whole thread, or only unread replies (and ack them)
     cockpit_inbox.py list
     cockpit_inbox.py card add TITLE [--lane L] [--thread ID] [--note N] [--owe TEXT]
     cockpit_inbox.py card move CARD LANE [--note N] [--owe TEXT]
     cockpit_inbox.py hook stop               Claude Code Stop hook (stdin: hook JSON), see hook_stop()
     cockpit_inbox.py hook prompt             UserPromptSubmit hook: snapshot repos at turn start (turns/)
+
+Exit codes (post --wait, wait, read --new): a verdict and an error never share a code.
+    0  approved, approved with notes, or a plain reply    10 changes requested    11 rejected    12 wait timed out
+    64 usage error    65 nothing to post (empty diff)    66 no such thread or card    70 internal error (traceback)
 
 --diff without REV, inside a Claude session: one diff per repo this turn changed, measured from the
 turn-start snapshot (so the human's own uncommitted work is left out), else the edited files vs HEAD.
@@ -44,6 +48,7 @@ import socket
 import subprocess
 import sys
 import time
+import traceback
 from datetime import datetime
 from pathlib import Path
 
@@ -53,7 +58,10 @@ BLOBS = ROOT / "blobs"
 WAITING = ROOT / "waiting"
 CARDS = ROOT / "cards.jsonl"
 LANES = ["backlog", "todo", "in_progress", "in_review", "done", "cancelled"]
-VERDICT_EXIT = {"changes_requested": 1, "reject": 2}
+# Verdicts 10-12, errors 64+ (sysexits.h): Python's own failures (1) and argparse's (2) can't pass for a verdict
+VERDICT_EXIT = {"changes_requested": 10, "reject": 11}
+EXIT_TIMEOUT = 12
+EX_USAGE, EX_DATAERR, EX_NOINPUT, EX_SOFTWARE = 64, 65, 66, 70
 CLI = f"python3 {Path(__file__).resolve()}"
 EDIT_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
 # The reply explains itself to the agent, so no skill has to teach the workflow up front
@@ -67,6 +75,11 @@ NEXT_STEP = {
     "reject": "Rejected: stop this approach. Ask what to do instead unless the reply says.",
     None: "Reply: act on it. If you change files, repost them with `{cli} post --thread {tid} ...`.",
 }
+
+
+def die(msg, code):
+    print(f"cockpit-inbox: {msg}", file=sys.stderr)
+    sys.exit(code)
 
 
 def append(path, event):
@@ -92,7 +105,7 @@ def read_jsonl(path):
 def thread_path(tid, must_exist=True):
     path = THREADS / f"{tid}.jsonl"
     if must_exist and not path.exists():
-        sys.exit(f"cockpit-inbox: no thread {tid}")
+        die(f"no thread {tid}", EX_NOINPUT)
     return path
 
 
@@ -316,7 +329,7 @@ def slug(title):
 def cmd_post(a):
     cwd = os.getcwd()
     if not a.thread and not a.title:
-        sys.exit("cockpit-inbox: --title is required for a new thread")
+        die("--title is required for a new thread", EX_USAGE)
     tid = a.thread or f"{datetime.now():%Y%m%d-%H%M%S}-{slug(a.title)}"
     path = thread_path(tid, must_exist=bool(a.thread))
 
@@ -330,7 +343,7 @@ def cmd_post(a):
         # is reviewed as an editable document, so it stays out of the diffs
         diffs = turn_diffs(sid, exclude=a.attach)
         if not diffs and not attachments:
-            sys.exit("cockpit-inbox: this turn changed nothing to diff")
+            die("this turn changed nothing to diff", EX_DATAERR)
         for repo, base, label, patch in diffs:
             head = git("rev-parse", "--short", "HEAD", cwd=repo).strip()
             attachments.append(
@@ -341,7 +354,7 @@ def cmd_post(a):
         rev = a.diff or "HEAD"
         patch = git_diff(rev, cwd)
         if not patch.strip():
-            sys.exit(f"cockpit-inbox: empty diff against {rev}")
+            die(f"empty diff against {rev}", EX_DATAERR)
         head = git("rev-parse", "--short", "HEAD", cwd=cwd).strip()
         # Resolved now: the reviewer rebuilds both sides from it after HEAD has moved on
         base_sha = git("rev-parse", rev, cwd=cwd).strip()
@@ -445,7 +458,7 @@ def wait(tid, timeout):
                 return emit(tid, new)
             if deadline and time.time() > deadline:
                 print(f"cockpit-inbox: no reply on {tid} yet (timeout); run `wait {tid}` again")
-                return 3
+                return EXIT_TIMEOUT
             time.sleep(2)
     finally:
         beat.unlink(missing_ok=True)
@@ -496,7 +509,7 @@ def cmd_card(a):
     else:
         card = cards().get(a.card)
         if not card:
-            sys.exit(f"cockpit-inbox: no card {a.card}")
+            die(f"no card {a.card}", EX_NOINPUT)
         card = {k: card[k] for k in ("card", "title", "thread", "note", "owe") if k in card} | {"lane": a.lane}
     if a.note is not None:
         card["note"] = a.note
@@ -662,8 +675,14 @@ def cmd_hook(a):
         print(json.dumps(decision))
 
 
+class Parser(argparse.ArgumentParser):
+    def error(self, message):
+        self.print_usage(sys.stderr)
+        die(message, EX_USAGE)
+
+
 def main():
-    p = argparse.ArgumentParser(prog="cockpit_inbox.py", description="Agent side of the cockpit inbox")
+    p = Parser(prog="cockpit_inbox.py", description="Agent side of the cockpit inbox")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     post = sub.add_parser("post", help="post a message, documents, a diff or questions")
@@ -718,7 +737,11 @@ def main():
     s.set_defaults(fn=cmd_snapshot)
 
     a = p.parse_args()
-    a.fn(a)
+    try:
+        a.fn(a)
+    except Exception:
+        traceback.print_exc()
+        sys.exit(EX_SOFTWARE)
 
 
 if __name__ == "__main__":

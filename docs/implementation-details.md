@@ -130,7 +130,18 @@ Logs are append-only JSONL and are never rewritten. All state (status, drafts, r
 
 ### Flows
 
-- **Posting**: `cockpit_inbox.py post` copies the attachments into `blobs/` and appends a `message`. `--gate` (or any `--stage`) puts the thread in `needs_you`. `--wait` blocks on `wait` and exits 0 for approve or reply, 1 for changes requested, 2 for reject, 3 on timeout.
+- **Posting**: `cockpit_inbox.py post` copies the attachments into `blobs/` and appends a `message`. `--gate` (or any `--stage`) puts the thread in `needs_you`. `--wait` blocks on `wait`.
+- **CLI exit codes** (`post --wait`, `wait`, `read --new`). Verdicts and errors never share a code, so a failing CLI can't pass for a verdict:
+
+  | Code | Meaning |
+  | --- | --- |
+  | 0 | approved, approved with notes, or a plain reply |
+  | 10 / 11 | changes requested / rejected |
+  | 12 | `wait --timeout` ran out |
+  | 64 | usage error (argparse, `post` without `--title`, invalid thread id) |
+  | 65 | nothing to post (empty diff) |
+  | 66 | no such thread or card |
+  | 70 | internal error (traceback on stderr) |
 - **Stop hook** (registered in `~/.claude/settings.json`): runs only in tmux or herdr sessions, and only when nobody is watching the agent's pane. A herdr agent counts as watched only while it's attached (marker in `attached/`) and that tmux pane is visible. Then:
   - If the turn changed files, the hook **blocks the stop** and tells the agent to `post` them.
   - Otherwise, if the last line of the agent's message ends in `?` (or the session is already replying to a thread), it posts that message itself.
