@@ -904,7 +904,10 @@ ok "launcher: attach marker $TERM17L = %77 while attached, removed after"
 cat >"$T/bin17h/herdr" <<SH
 #!/bin/sh
 case " \$* " in
-*" agent attach "*) for a; do t=\$a; done; "$REAL_HERDR" --session ckspike agent rename "\$t" renamed17 >/dev/null; sleep 8; exit 0 ;;
+*" agent attach "*) for a; do t=\$a; done
+  # herdr refuses a rename while startup is pending: retry until Claude is up
+  for _ in \$(seq 60); do "$REAL_HERDR" --session ckspike agent rename "\$t" renamed17 >/dev/null 2>&1 && break; sleep 1; done
+  sleep 8; exit 0 ;;
 esac
 exec "$REAL_HERDR" "\$@"
 SH
