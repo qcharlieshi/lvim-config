@@ -234,7 +234,11 @@ function M.build(opts)
     local all = opts.registry and (opts.registry[n] or {}) or require("cockpit.registry").all(n)
     for _, rec in pairs(all) do
       rec.project = rec.project or n
-      regs[regkey(rec)] = rec
+      local k = regkey(rec)
+      -- the same session can have records in two projects (m writes to the target's file): newest wins
+      if not regs[k] or (rec.ts or 0) >= (regs[k].ts or 0) then
+        regs[k] = rec
+      end
       local cur = seat[rec.terminal_id]
       if not cur or (rec.ts or 0) >= (cur.ts or 0) then
         seat[rec.terminal_id] = rec

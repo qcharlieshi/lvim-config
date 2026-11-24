@@ -71,6 +71,12 @@ local moved = vim.deepcopy(registry)
 moved.p.SA = vim.tbl_extend("force", moved.p.SA, { project = "q", moved = true })
 local mk = keys(run(false, moved))
 assert(vim.fn.index(mk, "a:SA") > vim.fn.index(mk, "p:q"), vim.inspect(mk))
+-- the move record lives in the target's file; a target sorting before the source must still win (newest ts)
+local moved2 = vim.deepcopy(registry)
+moved2.a = { SA = vim.tbl_extend("force", registry.p.SA, { project = "a", moved = true, ts = 9 }) }
+local mk2 = vim.tbl_map(function(n) return n.key end, tree.build({ threads = threads, agents = agents, registry = moved2,
+  projects = { { name = "a" }, { name = "p" }, { name = "q" } } }))
+assert(vim.fn.index(mk2, "a:SA") > vim.fn.index(mk2, "p:a") and vim.fn.index(mk2, "a:SA") < vim.fn.index(mk2, "p:p"), vim.inspect(mk2))
 print("T10 OK")
 LUA
   nlua "$T/t10.lua" 2>&1 | tee "$T/t10.out" | grep -q "T10 OK" || { cat "$T/t10.out"; fail "section 10"; }
