@@ -4,7 +4,7 @@
 -- Outbox: a reply is pending until the agent acks it (`cockpit_inbox.py read --new` / `wait`). Each attempt is
 -- logged in the thread as { kind = "delivery", replies, ok, via?, target?, detail }:
 --   ok = true            the agent has it (prompt accepted, or it was blocked in `wait`): never sent again
---   ok = false, no via   no reachable agent at send time: queued until one turns up
+--   ok = false, no via   no reachable agent at send time: queued until one turns up, for FRESH at most
 --   ok = false, via      the transport failed (agent at a dialog, ...): retried with backoff, MAX_TRIES at most
 -- flush() runs on agent changes (CockpitAgents), inbox changes and a slow timer (tmux panes emit nothing).
 -- One prompt covers every pending reply of a thread, since `read --new` prints them all. Several nvims may
@@ -13,8 +13,8 @@ local store = require("cockpit.inbox.store")
 local M = {}
 
 M.BACKOFF, M.BACKOFF_MAX, M.MAX_TRIES = 30, 3600, 8
--- A reply with no attempt at all (nvim died between append and deliver) is picked up for this long; older ones
--- predate the outbox and are left alone rather than replayed to an agent that has moved on
+-- A reply never attempted (nvim died between append and deliver) or only queued (agent unreachable) is sent for
+-- this long after it was written; after that it's left alone rather than replayed to an agent that has moved on
 M.FRESH = 3600
 M.now = os.time
 
@@ -30,10 +30,14 @@ function M.agent_waiting(tid)
   return stat ~= nil and M.now() - stat.mtime.sec < 10
 end
 
--- list-panes, not display-message: display -t falls back to the current pane when the target is gone
-function M.tmux_pane_alive(pane)
-  local r = vim.system({ "tmux", "list-panes", "-a", "-F", "#{pane_id}" }, { text = true }):wait()
-  return vim.tbl_contains(vim.split(r.stdout or "", "\n", { trimempty = true }), pane)
+-- The live Claude session in a tmux pane. A pane id alone isn't enough: ids restart at %0 with the tmux server,
+-- so a queued reply's pane may now be a shell or an editor. When the thread names its session, that must match.
+local function claude_in(pane, sid)
+  for _, s in ipairs(require("cockpit.sessions").list()) do
+    if s.pane == pane and (not sid or s.session_id == sid) then
+      return s
+    end
+  end
 end
 
 -- resolve(t) -> { via = <transport>, target } | nil, why: the thread's live agent. Swap it to join threads to
@@ -53,8 +57,8 @@ function M.default_resolve(t)
   if not pane then
     return nil, "no agent pane; it can run `read " .. t.id .. " --new`"
   end
-  if not M.tmux_pane_alive(pane) then
-    return nil, "agent pane " .. pane .. " is gone; reply queued until it's back"
+  if not claude_in(pane, t.session.session_id) then
+    return nil, "no Claude session in pane " .. pane .. " any more; reply queued until it's back"
   end
   return { via = "tmux", target = pane }
 end
@@ -88,7 +92,7 @@ function M.due(r, now)
     return d.via ~= nil
   end, r.attempts)
   if #tried == 0 then
-    return true -- only queued so far: the agent just wasn't reachable
+    return now - (r.ts or 0) < M.FRESH -- only queued so far: the agent wasn't reachable
   elseif #tried >= M.MAX_TRIES then
     return false
   end
@@ -158,7 +162,11 @@ end
 
 -- At send time; t may predate the reply, so the thread is read again
 function M.deliver(t)
-  return attempt(store.thread(t.id) or t, true) or "nothing to deliver"
+  local cur = store.thread(t.id)
+  if not cur then
+    return "no thread " .. tostring(t.id)
+  end
+  return attempt(cur, true) or "nothing to deliver"
 end
 
 -- Retry every due reply; threads: an already-derived store.threads() list to reuse

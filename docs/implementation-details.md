@@ -156,10 +156,10 @@ Logs are append-only JSONL and are never rewritten. All state (status, drafts, r
 - **Reply delivery** (`delivery.lua`; `store.deliver` is a shim for `ui.send`). One prompt covers every undelivered reply of a thread. First match wins:
   - The agent is blocked in `wait` (fresh `waiting/<tid>`): it reads the reply itself (logged as `via = "wait"`).
   - The thread has a herdr session: `agent.prompt`, joined on `terminal_id`. Never falls back to tmux for these.
-  - Otherwise, a one-line `tmux send-keys` to `session.tmux_pane`. The agent then runs `read <tid> --new`, which also appends the `ack`.
+  - Otherwise, a one-line `tmux send-keys` to `session.tmux_pane`, but only while that pane hosts a live Claude session (`sessions.list()`), with the same `session_id` when the thread records one. Pane ids restart with the tmux server, so a bare pane id could be anyone's shell. The agent then runs `read <tid> --new`, which also appends the `ack`.
   - The thread → agent join is `delivery.resolve(t)`, replaceable (e.g. to join on the Claude session id). Transports are `delivery.transports.{herdr,tmux}`.
 - **Outbox**: every attempt appends a `delivery` event. `delivery.flush()` retries undelivered replies of non-archived threads on `CockpitAgents` (agent cache changed), on inbox changes, and every 60 s (tmux panes emit no events):
-  - Unreachable at send time (agent offline, pane gone): queued. Sent as soon as `resolve` finds the agent.
+  - Unreachable at send time (agent offline, no Claude in the pane): queued. Sent as soon as `resolve` finds the agent, if the reply is under 1 h old.
   - Reached once (`ok`): never sent again, acked or not.
   - The transport failed (e.g. agent at a dialog): retried with backoff 30 s, doubling, capped at 1 h, at most 8 tries.
   - No attempt at all (nvim died between the reply and its delivery): picked up if the reply is under 1 h old.

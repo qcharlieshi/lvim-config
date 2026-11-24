@@ -1,13 +1,19 @@
 -- Reply delivery + outbox (review 0.4). herdr and tmux are faked: nothing leaves this process.
 local h = require("tests.helpers")
 local eq = MiniTest.expect.equality
-local live, calls
+local live, calls, claude_sessions
 
 local T = MiniTest.new_set({
   hooks = {
     pre_case = function()
       h.fresh()
-      live, calls = {}, {}
+      live, calls, claude_sessions = {}, {}, {}
+      -- live hand-started Claude sessions, shaped like sessions.list()
+      package.loaded["cockpit.sessions"] = {
+        list = function()
+          return claude_sessions
+        end,
+      }
       package.loaded["cockpit.herdr"] = {
         start = function() end,
         agents = function()
@@ -177,32 +183,72 @@ T["an agent blocked in wait reads it itself"] = function()
   eq(thread("t1").undelivered, {})
 end
 
-T["tmux threads: gone pane queues, a live one gets send-keys"] = function()
-  local delivery = require("cockpit.inbox.delivery")
-  local alive, sent = false, {}
-  delivery.tmux_pane_alive = function()
-    return alive
-  end
+local function tmux_spy(delivery)
+  local sent = {}
   delivery.transports.tmux = function(pane, msg)
     sent[#sent + 1] = { pane, msg }
     return "delivered to pane " .. pane, true
   end
+  return sent
+end
+
+T["tmux threads: no Claude in the pane queues, the session coming back gets send-keys"] = function()
+  local delivery = require("cockpit.inbox.delivery")
+  local sent = tmux_spy(delivery)
   post("t1", { agent = "claude", tmux_pane = "%7" })
   reply("t1")
-  MiniTest.expect.no_equality(delivery.deliver(thread("t1")):find("is gone", 1, true), nil)
+  MiniTest.expect.no_equality(delivery.deliver(thread("t1")):find("queued", 1, true), nil)
   eq(#sent, 0)
-  alive = true
+  claude_sessions[1] = { pid = 1, session_id = "sid-1", pane = "%7" }
   delivery.flush()
   eq(#sent, 1)
   eq(sent[1][1], "%7")
 end
 
+T["a queued reply is never typed into a reused pane id without a Claude session"] = function()
+  -- tmux pane ids restart at %0 with the server: after a restart %7 can be a plain shell or an nvim
+  local delivery = require("cockpit.inbox.delivery")
+  local sent = tmux_spy(delivery)
+  post("t1", { agent = "claude", tmux_pane = "%7" })
+  reply("t1")
+  delivery.deliver(thread("t1"))
+  delivery.flush()
+  eq(#sent, 0)
+end
+
+T["a queued reply is never typed into a pane now running another Claude session"] = function()
+  local delivery = require("cockpit.inbox.delivery")
+  local sent = tmux_spy(delivery)
+  post("t1", { agent = "claude", tmux_pane = "%7", session_id = "sid-A" })
+  reply("t1")
+  claude_sessions[1] = { pid = 2, session_id = "sid-B", pane = "%7" }
+  delivery.deliver(thread("t1"))
+  delivery.flush()
+  eq(#sent, 0)
+  claude_sessions[1] = { pid = 3, session_id = "sid-A", pane = "%7" }
+  delivery.flush()
+  eq(#sent, 1)
+end
+
+T["a queued reply expires after FRESH"] = function()
+  local delivery = require("cockpit.inbox.delivery")
+  local now = os.time()
+  delivery.now = function()
+    return now
+  end
+  post("t1")
+  reply("t1")
+  delivery.deliver(thread("t1")) -- offline: queued
+  now = now + delivery.FRESH + 1
+  live["term-a"] = { target = "agent-1", terminal_id = "term-a" }
+  delivery.flush()
+  eq(#calls, 0)
+end
+
 T["herdr threads never fall back to tmux"] = function()
   local delivery = require("cockpit.inbox.delivery")
   local sent = 0
-  delivery.tmux_pane_alive = function()
-    return true
-  end
+  claude_sessions[1] = { pid = 1, session_id = "sid-1", pane = "%1" }
   delivery.transports.tmux = function()
     sent = sent + 1
     return "x", true
@@ -211,6 +257,10 @@ T["herdr threads never fall back to tmux"] = function()
   reply("t1")
   MiniTest.expect.no_equality(delivery.deliver(thread("t1")):find("offline", 1, true), nil)
   eq(sent, 0)
+end
+
+T["deliver on a thread that doesn't exist says so (smoke 7 passes a bare thread table)"] = function()
+  eq(require("cockpit.inbox.delivery").deliver({ id = "x", session = { tmux_pane = "%1" } }), "no thread x")
 end
 
 T["the owner join is injectable (e.g. by Claude session id)"] = function()

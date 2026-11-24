@@ -318,8 +318,8 @@ assert(ws.workspace.label == "ck/smoke", "label " .. tostring(ws.workspace.label
 assert(vim.wait(5000, function() return (h.agents()[name] or {}).project == "smoke" end), "project not resolved from ck/ label")
 h.kill(name)
 -- fix 3: a herdr-posted thread whose agent is gone never falls through to a tmux pane
-local how = store.deliver({ id = "x", session = { herdr = { terminal_id = "term_gone" }, tmux_pane = "%999999" } })
-assert(how:find("offline", 1, true), "deliver fell through: " .. how)
+local route, how = require("cockpit.inbox.delivery").resolve({ id = "x", session = { herdr = { terminal_id = "term_gone" }, tmux_pane = "%999999" } })
+assert(route == nil and how:find("offline", 1, true), "deliver fell through: " .. vim.inspect(route or how))
 print("T7 OK")
 LUA
 HW=$HW nlua "$T/t7.lua" 2>&1 | tee "$T/t7.out" | grep -q "T7 OK" || { cat "$T/t7.out"; fail "section 7"; }
