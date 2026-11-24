@@ -57,7 +57,7 @@ All metrics displayed in lualine with color-coded thresholds (green/yellow/red).
 
 ## Cockpit (`lua/cockpit/`, `scripts/cockpit*`)
 
-Agent review inbox + agent runtime front end. Agents (Claude Code) post documents, diffs and questions; you review, edit, annotate and send a verdict from one nvim tab. Agents run headless in **herdr** (or as plain Claude sessions you started yourself in tmux). Keys: [keybindings.md](keybindings.md) → "Cockpit". Design history: `docs/superpowers/` (start with `handoffs/2026-11-11-cockpit-next-steps.md`; the 2026-08-28 v8 spec is superseded).
+Agent review inbox + agent runtime front end. Agents (Claude Code) post documents, diffs and questions; you review, edit, annotate and send a verdict from one nvim tab. Agents run headless in **herdr** (or as plain Claude sessions you started yourself in tmux). Keys: [keybindings.md](keybindings.md) → "Cockpit". Design history lives in git (removed `docs/superpowers/`); current state and Production gaps: [cockpit-architecture-review.md](cockpit-architecture-review.md).
 
 ### Modules
 

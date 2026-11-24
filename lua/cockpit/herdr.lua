@@ -1,6 +1,5 @@
--- cockpit ↔ herdr: the only place nvim talks to the agent runtime (rented and disposable, see
--- docs/superpowers/specs/2026-11-10-cockpit-herdr-runtime-design.md). Speaks herdr's NDJSON
--- socket API directly. Every call names its target explicitly — never --current (herdr #2900).
+-- cockpit ↔ herdr: the only place nvim talks to the agent runtime (rented and disposable).
+-- Speaks herdr's NDJSON socket API directly. Every call names its target explicitly — never --current (herdr #2900).
 local M = {}
 
 local uv = vim.uv
