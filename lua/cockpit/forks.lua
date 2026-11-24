@@ -1,5 +1,5 @@
 -- cockpit forks (spec §3.4, §4b.1/3/4/7): a fork resumes its parent's Claude session as a new
--- session (`--resume <id> --fork-session`) in a pane split into the parent's ck/ workspace.
+-- session (`--resume <id> --fork-session`) in a new tab of the parent's ck/ workspace.
 --   continue — same checkout as the parent.
 --   worktree — fresh git worktrees, one per project repo, on branch fork/<parent>-<n>. Never
 --              touches the parent's checkouts; kill-cleanup never drops commits without asking.
@@ -58,20 +58,21 @@ local function check(parent)
   return p, session
 end
 
--- Split a pane next to the parent and start the resumed fork there; record it, then send the
--- user's prompt. The fork preamble is given at launch, so a fork blocked at startup (folder trust)
+-- Open a tab next to the parent's (same ck/ workspace) and start the resumed fork there; record it, then send
+-- the user's prompt. The fork preamble is given at launch, so a fork blocked at startup (folder trust)
 -- still gets it once you answer the dialog: as SessionStart hook context via --settings, because
 -- --append-system-prompt / --system-prompt are ignored on --resume (claude 2.1.322). `undo` runs when the fork never
--- came to exist (split failed, or start failed other than blocked).
+-- came to exist (tab failed, or start failed other than blocked).
 local function start(parent, session, cwd, add_dirs, system, prompt, rec, cb, undo)
   undo = undo or function() end
   local herdr = require("cockpit.herdr")
   local project = parent.project
   local env = { COCKPIT_PROJECT = project, COCKPIT_INBOX_DIR = vim.env.COCKPIT_INBOX_DIR, COCKPIT_PARENT = parent.name }
-  local err, res = herdr.request("pane.split", {
-    target_pane_id = parent.pane_id,
-    direction = "right",
+  local name = herdr.agent_name(project, cwd)
+  local err, res = herdr.request("tab.create", {
+    workspace_id = parent.workspace_id,
     cwd = cwd,
+    label = name,
     focus = false,
     env = env,
   })
@@ -80,23 +81,30 @@ local function start(parent, session, cwd, add_dirs, system, prompt, rec, cb, un
     vim.notify("cockpit: fork failed — " .. err.message, vim.log.levels.ERROR)
     return cb(err)
   end
-  local pane_id = res.pane.pane_id
+  local pane_id, tab_id = res.root_pane.pane_id, res.tab.tab_id
   local hook = { type = "command", command = "printf '%s\\n' " .. vim.fn.shellescape(system) }
   local settings = vim.json.encode({ hooks = { SessionStart = { { hooks = { hook } } } } })
   local args = { "--resume", session, "--fork-session", "--settings", settings }
   for _, d in ipairs(add_dirs) do
     vim.list_extend(args, { "--add-dir", d })
   end
-  rec =
-    vim.tbl_extend("force", rec, { project = project, parent_terminal = parent.terminal_id, parent_name = parent.name })
-  herdr.start_in(pane_id, herdr.free_name(project), args, rec, function(serr, name)
+  rec = vim.tbl_extend("force", rec, {
+    project = project,
+    parent_terminal = parent.terminal_id,
+    parent_session = parent.session_id,
+    parent_name = parent.name,
+    dir = cwd,
+    tab_id = tab_id,
+    pane_id = pane_id,
+  })
+  herdr.start_in(pane_id, name, args, rec, function(serr, started)
     if serr and serr.code ~= "agent_not_ready" then
-      herdr.request("pane.close", { pane_id = pane_id })
+      herdr.request("tab.close", { tab_id = tab_id })
       undo()
     elseif not serr and prompt and prompt ~= "" then
-      herdr.request("agent.prompt", { target = name, text = prompt }, function() end)
+      herdr.request("agent.prompt", { target = started, text = prompt }, function() end)
     end
-    cb(serr, name)
+    cb(serr, started)
   end)
 end
 

@@ -1301,11 +1301,23 @@ end
 function M.spawn(project)
   local projects, herdr = require("cockpit.projects"), require("cockpit.herdr")
   local function go(name)
-    vim.ui.input({ prompt = "First prompt (optional): " }, function(text)
-      if text ~= nil then
-        herdr.spawn(name, text)
-      end
-    end)
+    local function ask(dir)
+      vim.ui.input({ prompt = "First prompt (optional): " }, function(text)
+        if text ~= nil then
+          herdr.spawn(name, text, nil, { dir = dir })
+        end
+      end)
+    end
+    -- a project with several dirs (worktrees): pick the one this agent works in (its tab's cwd)
+    local p = projects.get(name)
+    if p and #p.repos > 1 then
+      return vim.ui.select(p.repos, { prompt = name .. ": start the agent in" }, function(dir)
+        if dir then
+          ask(dir)
+        end
+      end)
+    end
+    ask(nil)
   end
   if type(project) == "string" and project ~= "" then
     return go(project)

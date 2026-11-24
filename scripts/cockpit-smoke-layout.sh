@@ -79,4 +79,37 @@ LUA
   ok "/clear in a live agent: reconcile learns the new session; the earlier one is under Past"
 fi
 
+# --- 22: spawn = one tab per agent in ck/<project>, named after the ticket; kill closes the tab ------------
+if want 22; then
+  echo "22: tab per agent + ticket names"
+  cat >"$T/t22.lua" <<'LUA'
+dofile(vim.env.T .. "/prelude.lua")
+local h, projects = require("cockpit.herdr"), require("cockpit.projects")
+projects.save({ name = "l22", repos = { vim.env.NVIM_CFG }, ticket = "ENG-99998" })
+h.start(); h.watch(true)
+local e1, n1, p1, t1 = await(function(cb) h.spawn("l22", nil, cb) end)
+assert(not e1, vim.inspect(e1))
+local e2, n2, p2, t2 = await(function(cb) h.spawn("l22", nil, cb) end)
+assert(not e2, vim.inspect(e2))
+assert(n1 == "eng-99998" and n2 == "eng-99998-2", n1 .. " / " .. n2) -- RF4: no clash
+assert(t1 and t2 and t1 ~= t2, "not separate tabs: " .. tostring(t1) .. " " .. tostring(t2))
+local _, wl = h.request("workspace.list", {})
+local ws = vim.iter(wl.workspaces):find(function(w) return w.label == "ck/l22" end)
+assert(ws, "no ck/l22 workspace")
+local _, tl = h.request("tab.list", { workspace_id = ws.workspace_id })
+local labels = vim.tbl_map(function(t) return t.label end, tl.tabs)
+assert(vim.deep_equal(labels, { "shell", "eng-99998", "eng-99998-2" }), vim.inspect(labels))
+for _, t in ipairs(tl.tabs) do assert(t.pane_count == 1, "tab " .. t.label .. " has " .. t.pane_count .. " panes") end
+assert(h.agents()[n1].tab_id == t1 and h.agents()[n1].pane_id == p1, vim.inspect(h.agents()[n1]))
+assert(h.kill(n2) == nil, "kill errored")
+_, tl = h.request("tab.list", { workspace_id = ws.workspace_id })
+labels = vim.tbl_map(function(t) return t.label end, tl.tabs)
+assert(vim.deep_equal(labels, { "shell", "eng-99998" }), "after kill: " .. vim.inspect(labels))
+h.kill(n1)
+print("T22 OK")
+LUA
+  nlua "$T/t22.lua" 2>&1 | tee "$T/t22.out" | grep -q "T22 OK" || { cat "$T/t22.out"; fail "section 22"; }
+  ok "spawn: ck/l22 has tabs shell, eng-99998, eng-99998-2 (one pane each); kill closes the agent's tab"
+fi
+
 echo "layout smoke: all requested sections passed"

@@ -358,42 +358,48 @@ local function claim(project, name)
   return false
 end
 
--- A name is free if no live agent, no registry record (names are never reused within a project),
--- no fork/<name>-* branch in the primary repo and no other spawn's claim has it.
-local function free_name(project)
+local function fork_branch(repo, name)
+  if not repo then
+    return false
+  end
+  local out = vim.system({ "git", "-C", repo, "branch", "--list", "fork/" .. name .. "-*" }, { text = true }):wait()
+  return vim.trim(out.stdout or "") ~= ""
+end
+
+-- The herdr name (= tab label) for a new agent: the ticket of its dir (worktree branch / dir name), else the
+-- project's ticket, else one named in the prompt -> eng-35131, eng-35131-2, ...; without a ticket <project>-<n>.
+-- Free = no live agent has it, no fork/<name>-* branch in the primary repo, and no other spawn's claim.
+function M.agent_name(project, dir, prompt)
+  local ticket = require("cockpit.ticket")
+  local p = require("cockpit.projects").get(project)
+  local repo = p and p.repos[1]
+  local key = (dir and ticket.for_dir(dir)) or (p and p.ticket and ticket.find(p.ticket)) or ticket.find(prompt)
+  local base = key and ticket.slug(key)
   local _, res = M.request("agent.list", {})
-  local taken = vim.deepcopy(require("cockpit.registry").names(project))
+  local taken = {}
   for _, a in ipairs((res or {}).agents or {}) do
     if a.name then
       taken[a.name] = true
     end
   end
-  local p = require("cockpit.projects").get(project)
-  local repo = p and p.repos[1]
   local n = 1
   while true do
-    local cand = project .. "-" .. n
-    if not taken[cand] then
-      local out = repo
-          and vim
-            .system({ "git", "-C", repo, "branch", "--list", "fork/" .. cand .. "-*" }, { text = true })
-            :wait().stdout
-        or ""
-      if vim.trim(out) == "" and claim(project, cand) then
-        return cand
-      end
+    local cand = base and (n == 1 and base or (base .. "-" .. n)) or (project .. "-" .. n)
+    if not taken[cand] and not fork_branch(repo, cand) and claim(project, cand) then
+      return cand
     end
     n = n + 1
   end
 end
 
-M.free_name = free_name
+function M.free_name(project)
+  return M.agent_name(project)
+end
 
--- The pane to start an agent in: create the project's ck/ workspace and use its fresh root pane,
--- or split a new pane into the existing one. Never reuses a pane cockpit didn't just create.
--- Returns err, pane_id.
-local function project_pane(p, env, cwd)
-  cwd = cwd or p.repos[1]
+-- A new tab for an agent in the project's ck/ workspace (created on first use, its first tab renamed
+-- `shell` and left for the user). Never reuses a pane cockpit didn't just create.
+-- Returns err, pane_id, tab_id.
+local function project_tab(p, env, dir, label)
   local _, wl = M.request("workspace.list", {})
   local ws
   for _, w in ipairs((wl or {}).workspaces or {}) do
@@ -403,20 +409,16 @@ local function project_pane(p, env, cwd)
     end
   end
   if not ws then
-    local err, res = M.request("workspace.create", { cwd = cwd, label = PREFIX .. p.name, focus = false, env = env })
-    return err, res and res.root_pane.pane_id
+    local err, res = M.request("workspace.create", { cwd = p.repos[1], label = PREFIX .. p.name, focus = false })
+    if err then
+      return err
+    end
+    ws = res.workspace
+    M.request("tab.rename", { tab_id = res.tab.tab_id, label = "shell" })
   end
-  local _, pl = M.request("pane.list", { workspace_id = ws.workspace_id })
-  local panes = (pl or {}).panes or {}
-  local err, res = M.request("pane.split", {
-    target_pane_id = panes[1] and panes[1].pane_id,
-    workspace_id = ws.workspace_id,
-    direction = "right",
-    cwd = cwd,
-    focus = false,
-    env = env,
-  })
-  return err, res and res.pane.pane_id
+  local err, res =
+    M.request("tab.create", { workspace_id = ws.workspace_id, cwd = dir, label = label, env = env, focus = false })
+  return err, res and res.root_pane.pane_id, res and res.tab.tab_id
 end
 
 -- Start a Claude agent in a fresh pane cockpit just created; cb(err, name). `rec` carries the
@@ -494,9 +496,10 @@ function M.start_in(pane_id, name, args, rec, cb, opts)
   end, 1500)
 end
 
--- Start a Claude agent in `project`; cb(err, name, pane_id). opts.args: extra claude args (appended);
--- opts.interactive = false: no attach prompt when blocked at startup (cb still gets the name).
--- opts.cwd: the pane's cwd (default: the primary repo). opts.env: base pane env (COCKPIT_* win).
+-- Start a Claude agent in `project`, in its own tab; cb(err, name, pane_id, tab_id).
+-- opts.dir (alias opts.cwd): the tab's cwd, default the primary dir (ui.spawn asks when a project has several).
+-- opts.args: extra claude args (appended). opts.interactive = false: no
+-- attach prompt when blocked at startup (cb still gets the name). opts.env: base pane env (COCKPIT_* win).
 -- opts.on_pane(pane_id): called as soon as the pane exists (the launcher closes it if it gives up).
 function M.spawn(project, prompt, cb, opts)
   opts = opts or {}
@@ -508,37 +511,54 @@ function M.spawn(project, prompt, cb, opts)
   if not p then
     return cb({ code = "no_project", message = "no project " .. project })
   end
-  local env = vim.tbl_extend(
-    "force",
-    opts.env or {},
-    { COCKPIT_PROJECT = project, COCKPIT_INBOX_DIR = vim.env.COCKPIT_INBOX_DIR }
-  )
-  local err, pane_id = project_pane(p, env, opts.cwd)
-  if err then
-    vim.notify("cockpit: spawn failed — " .. err.message, vim.log.levels.ERROR)
-    return cb(err)
-  end
-  if opts.on_pane then
-    opts.on_pane(pane_id)
-  end
-  local args = {}
-  for i = 2, #p.repos do
-    vim.list_extend(args, { "--add-dir", p.repos[i] })
-  end
-  vim.list_extend(args, opts.args or {})
-  M.start_in(pane_id, free_name(project), args, { project = project }, function(serr, name)
-    if not serr and prompt and prompt ~= "" then
-      M.request("agent.prompt", { target = name, text = prompt }, function() end)
+  local function go(dir)
+    local env = vim.tbl_extend(
+      "force",
+      opts.env or {},
+      { COCKPIT_PROJECT = project, COCKPIT_INBOX_DIR = vim.env.COCKPIT_INBOX_DIR }
+    )
+    local name = M.agent_name(project, dir, prompt)
+    local err, pane_id, tab_id = project_tab(p, env, dir, name)
+    if err then
+      vim.notify("cockpit: spawn failed — " .. err.message, vim.log.levels.ERROR)
+      return cb(err)
     end
-    cb(serr, name, pane_id)
-  end, { interactive = opts.interactive })
+    if opts.on_pane then
+      opts.on_pane(pane_id)
+    end
+    local args = {}
+    for _, r in ipairs(p.repos) do
+      if not (dir == r or dir:sub(1, #r + 1) == r .. "/") then
+        vim.list_extend(args, { "--add-dir", r })
+      end
+    end
+    vim.list_extend(args, opts.args or {})
+    local rec = { project = project, dir = dir, tab_id = tab_id, pane_id = pane_id }
+    M.start_in(pane_id, name, args, rec, function(serr, started)
+      if not serr and prompt and prompt ~= "" then
+        M.request("agent.prompt", { target = started, text = prompt }, function() end)
+      end
+      cb(serr, started, pane_id, tab_id)
+    end, { interactive = opts.interactive })
+  end
+  go(opts.dir or opts.cwd or p.repos[1])
 end
 
--- Hard kill: close the agent's own pane. Callers confirm first. Returns err or nil.
+-- Hard kill: close the agent's tab (its pane, if the user split the tab). Callers confirm first. Returns err or nil.
 function M.kill(target)
   local a = cache[target]
   local pane_id = a and a.pane_id or target
-  local err = M.request("pane.close", { pane_id = pane_id })
+  local tab
+  if a and a.tab_id then
+    local _, t = M.request("tab.get", { tab_id = a.tab_id })
+    tab = t and t.tab
+  end
+  local err
+  if tab and tab.pane_count == 1 then -- the agent's own tab: close it whole
+    err = M.request("tab.close", { tab_id = tab.tab_id })
+  else
+    err = M.request("pane.close", { pane_id = pane_id })
+  end
   M.reconcile()
   return err
 end

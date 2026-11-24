@@ -33,7 +33,7 @@ function M.for_dir(dir)
   if key then
     return key
   end
-  local num = vim.fs.basename(dir):match("%-(%d+)")
+  local num = vim.fs.basename(dir):match("%-(%d%d%d+)")
   return num and (M.prefixes()[1]:upper() .. "-" .. num) or nil
 end
 
