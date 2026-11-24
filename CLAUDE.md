@@ -8,6 +8,8 @@ Highly customized LazyVim-based Neovim configuration with extensive UI customiza
 - [docs/keybindings.md](docs/keybindings.md) — All custom keybinding mappings
 - [docs/plugin-ecosystem.md](docs/plugin-ecosystem.md) — Active plugin catalog with descriptions
 
+`docs/` top level holds only living reference docs. Audits, plans, reviews and other work-to-be-done go in `docs/todo/`; delete them once the work is finished (git keeps the history).
+
 ## Configuration Structure
 
 - `init.lua`: Entry point — Python path, terminal background sync (OSC 11/111), macOS codesign loader
