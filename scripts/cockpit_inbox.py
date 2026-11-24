@@ -20,10 +20,15 @@ on until the human approves. Each post to a stage is a new round of that stage.
     cockpit_inbox.py card add TITLE [--lane L] [--thread ID] [--note N] [--owe TEXT]
     cockpit_inbox.py card move CARD LANE [--note N] [--owe TEXT]
     cockpit_inbox.py hook stop               Claude Code Stop hook (stdin: hook JSON), see hook_stop()
+    cockpit_inbox.py hook prompt             UserPromptSubmit hook: snapshot repos at turn start (turns/)
+
+--diff without REV, inside a Claude session: one diff per repo this turn changed, measured from the
+turn-start snapshot (so the human's own uncommitted work is left out), else the edited files vs HEAD.
 
 Storage ($COCKPIT_INBOX_DIR, default ~/.cockpit/inbox):
     threads/<id>.jsonl   events: message · reply · annotation · annotation_deleted · state · ack
     blobs/<sha256>       attachment bytes as sent, so annotations pin to what was reviewed
+    turns/<session>.json repo states at the session's latest prompt (head, stash-create snap, untracked)
     waiting/<id>         heartbeat while an agent blocks in `wait` (nvim skips tmux delivery)
     cards.jsonl          board card snapshots, latest line per card wins
     feedback.jsonl       why-tagged steer ledger, written by nvim on send
@@ -169,12 +174,134 @@ def snapshot(data, name, **extra):
     return {"name": name, "sha256": sha, **{k: v for k, v in extra.items() if v is not None}}
 
 
-def git_diff(rev, cwd):
-    patch = git("diff", rev, cwd=cwd)
-    # `git diff REV` skips untracked files, which is most of what an agent creates
-    for path in git("ls-files", "--others", "--exclude-standard", cwd=cwd).splitlines():
-        patch += git("diff", "--no-index", "--", "/dev/null", path, cwd=cwd, ok_codes=(0, 1))
+def git_diff(rev, cwd, paths=None, skip_untracked=(), exclude=()):
+    """Worktree vs REV, plus untracked files (which `git diff REV` skips — most of what an agent creates).
+    paths: limit to these repo-relative paths; skip_untracked: untracked files that predate the turn;
+    exclude: repo-relative paths left out (markdown sent as editable documents instead)."""
+    spec = list(paths) if paths is not None else ["."]
+    if paths is not None and not spec:
+        return ""
+    spec += [f":(exclude){p}" for p in exclude]
+    patch = git("diff", rev, "--", *spec, cwd=cwd)
+    skip = set(skip_untracked) | set(exclude)
+    for path in git("ls-files", "--others", "--exclude-standard", "--", *spec, cwd=cwd).splitlines():
+        if path not in skip:
+            patch += git("diff", "--no-index", "--", "/dev/null", path, cwd=cwd, ok_codes=(0, 1))
     return patch
+
+
+# ---------------------------------------------------------------------------
+# Turn snapshots: what a turn changed, per repo, without the human's own uncommitted work
+# ---------------------------------------------------------------------------
+TURNS = ROOT / "turns"
+TURN_STALE = 7 * 86400
+
+
+def toplevel(path):
+    p = Path(path)
+    d = p if p.is_dir() else p.parent
+    while not d.exists() and d != d.parent:  # a deleted file's dir may be gone too
+        d = d.parent
+    try:
+        return git("rev-parse", "--show-toplevel", cwd=d).strip() or None
+    except (RuntimeError, OSError):
+        return None
+
+
+def repos_under(cwd):
+    """The repo containing cwd; outside git (an org root like ~/dev/lilt), the repos directly under it."""
+    top = toplevel(cwd)
+    if top:
+        return [top]
+    try:
+        return sorted(str(d) for d in Path(cwd).iterdir() if d.is_dir() and (d / ".git").exists())
+    except OSError:
+        return []
+
+
+def repo_state(repo):
+    head = git("rev-parse", "HEAD", cwd=repo).strip()
+    # A commit of the dirty worktree + index, made without touching either; empty output = clean
+    snap = git("stash", "create", cwd=repo).strip() or head
+    untracked = git("ls-files", "--others", "--exclude-standard", cwd=repo).splitlines()
+    return {"head": head, "snap": snap, "untracked": untracked}
+
+
+def cmd_snapshot(a):
+    """Detached child of the UserPromptSubmit hook: record every repo's state at turn start."""
+    repos = {}
+    for r in repos_under(a.cwd):
+        try:
+            repos[r] = repo_state(r)
+        except (RuntimeError, OSError):
+            pass  # empty repo (no HEAD), permissions: no snapshot, fall back to edited paths
+    TURNS.mkdir(parents=True, exist_ok=True)
+    out = TURNS / f"{a.session}.json"
+    tmp = out.with_suffix(".tmp")
+    tmp.write_text(json.dumps({"ts": a.ts, "cwd": a.cwd, "transcript": a.transcript, "repos": repos}))
+    tmp.replace(out)
+    now = time.time()
+    for f in TURNS.glob("*.json"):
+        if now - f.stat().st_mtime > TURN_STALE:
+            f.unlink(missing_ok=True)
+
+
+def hook_prompt(payload):
+    if not (os.environ.get("TMUX_PANE") or os.environ.get("HERDR_PANE_ID")):
+        return
+    if os.environ.get("COCKPIT_INBOX_HOOK") == "0" or not payload.get("session_id"):
+        return
+    # git stash create over a dozen repos takes a while: never hold up the prompt
+    subprocess.Popen(
+        [sys.executable, str(Path(__file__).resolve()), "snapshot", payload["session_id"],
+         payload.get("cwd") or os.getcwd(), str(time.time()), payload.get("transcript_path") or ""],
+        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
+    )
+
+
+def find_transcript(sid):
+    hits = list(Path("~/.claude/projects").expanduser().glob(f"*/{sid}.jsonl"))
+    return str(hits[0]) if hits else None
+
+
+def turn_diffs(sid, transcript=None, exclude=()):
+    """[(repo, base_sha, base_label, patch)] for every repo this turn changed.
+    Repos snapshotted at turn start: worktree vs that snapshot (catches Bash edits and commits, leaves out
+    work that predates the turn). Other repos holding a file the agent edited: those files vs HEAD."""
+    turn = {}
+    if sid and (TURNS / f"{sid}.json").exists():
+        try:
+            turn = json.loads((TURNS / f"{sid}.json").read_text())
+        except ValueError:
+            turn = {}
+    transcript = transcript or turn.get("transcript") or (sid and find_transcript(sid))
+    _, edited, _ = turn_activity(transcript)
+    excl = {str(Path(p).resolve()) for p in exclude}
+    by_repo = {}
+    for f in edited:
+        r = toplevel(f)
+        if r:
+            by_repo.setdefault(r, []).append(f)
+    out = []
+    snaps = turn.get("repos") or {}
+    for repo in sorted(set(snaps) | set(by_repo)):
+        def rel(paths):
+            return [os.path.relpath(str(Path(p).resolve()), str(Path(repo).resolve())) for p in paths]
+
+        ex = rel([p for p in excl if p.startswith(str(Path(repo).resolve()) + os.sep)])
+        try:
+            st = snaps.get(repo)
+            if st:
+                base, label = st["snap"], "turn start"
+                patch = git_diff(base, repo, skip_untracked=st.get("untracked", []), exclude=ex)
+            else:
+                base, label = git("rev-parse", "HEAD", cwd=repo).strip(), "HEAD (edited files only)"
+                patch = git_diff(base, repo, paths=rel(by_repo[repo]), exclude=ex)
+        except (RuntimeError, OSError):
+            continue
+        if patch.strip():
+            out.append((repo, base, label, patch))
+    return out
 
 
 def parse_question(n, spec):
@@ -197,7 +324,20 @@ def cmd_post(a):
     for p in a.attach:
         fp = Path(p).expanduser().resolve()
         attachments.append(snapshot(fp.read_bytes(), fp.name, type="file", path=str(fp)))
-    if a.diff is not None:
+    sid = os.environ.get("CLAUDE_CODE_SESSION_ID")
+    if a.diff == "" and sid:
+        # This turn's changes, one diff per repo it touched (see turn_diffs); markdown sent with --attach
+        # is reviewed as an editable document, so it stays out of the diffs
+        diffs = turn_diffs(sid, exclude=a.attach)
+        if not diffs and not attachments:
+            sys.exit("cockpit-inbox: this turn changed nothing to diff")
+        for repo, base, label, patch in diffs:
+            head = git("rev-parse", "--short", "HEAD", cwd=repo).strip()
+            attachments.append(
+                snapshot(patch.encode(), f"{Path(repo).name}-{head}.diff", type="diff",
+                         base=label, base_sha=base, head=head, cwd=repo)
+            )
+    elif a.diff is not None:
         rev = a.diff or "HEAD"
         patch = git_diff(rev, cwd)
         if not patch.strip():
@@ -468,9 +608,10 @@ def hook_stop(payload):
     if posted:
         return None
     thread_hint = f"--thread {reply_thread}" if reply_thread else "--title '<short title>'"
-    if edited:
-        docs = [f for f in edited if f.endswith((".md", ".mdx", ".txt"))]
-        code = [f for f in edited if f not in docs]
+    docs = [f for f in edited if f.endswith((".md", ".mdx", ".txt"))]
+    # changes made through Bash (sed, codegen, git commit) show up only in the turn diff
+    code = turn_diffs(payload.get("session_id"), payload.get("transcript_path"), exclude=docs)
+    if docs or code:
         how = " ".join(
             filter(None, [f"--attach {' --attach '.join(docs)}" if docs else "", "--diff" if code else ""])
         )
@@ -510,7 +651,10 @@ def hook_stop(payload):
 
 def cmd_hook(a):
     try:
-        decision = hook_stop(json.load(sys.stdin))
+        payload = json.load(sys.stdin)
+        if a.event == "prompt":
+            return hook_prompt(payload)
+        decision = hook_stop(payload)
     except Exception as e:  # a hook bug must never wedge the agent
         print(f"cockpit-inbox hook: {e}", file=sys.stderr)
         return
@@ -563,8 +707,15 @@ def main():
         sp.set_defaults(fn=cmd_card)
 
     h = sub.add_parser("hook", help="Claude Code hook entry point")
-    h.add_argument("event", choices=["stop"])
+    h.add_argument("event", choices=["stop", "prompt"])
     h.set_defaults(fn=cmd_hook)
+
+    s = sub.add_parser("snapshot", help="(internal) record repo states at turn start")
+    s.add_argument("session")
+    s.add_argument("cwd")
+    s.add_argument("ts", type=float)
+    s.add_argument("transcript", nargs="?", default="")
+    s.set_defaults(fn=cmd_snapshot)
 
     a = p.parse_args()
     a.fn(a)

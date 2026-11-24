@@ -255,12 +255,11 @@ end, 190000)
 assert(vim.fn.glob(store.path("threads", "*-s6.jsonl")) ~= "", "agent did not post s6")
 ui.open()
 local rail = vim.fn.bufnr("cockpit://rail")
--- one line per row: the agent's own row carries its status glyph (○ idle, ✕ dead)
+-- the first line of the agent's card carries its status glyph (○ idle, ✕ dead)
+local tid = h.agents()[name].terminal_id
 local function agent_line()
-  for _, l in ipairs(vim.api.nvim_buf_get_lines(rail, 0, -1, false)) do
-    if l:find(" " .. name .. " ", 1, true) or l:sub(-#name - 1) == " " .. name then return l end
-  end
-  return ""
+  local r = require("cockpit.inbox.rail").row(rail, "a:" .. tid)
+  return r and vim.api.nvim_buf_get_lines(rail, r - 1, r, false)[1] or ""
 end
 local function has_s6()
   return vim.iter(vim.api.nvim_buf_get_lines(rail, 0, -1, false)):any(function(l) return l:find("s6", 1, true) ~= nil end)
@@ -278,7 +277,7 @@ assert(vim.fn.exists(":CockpitSpawn") == 2 and vim.fn.exists(":CockpitAgent") ==
 print("T6 OK")
 LUA
 CLI=$CLI nlua "$T/t6.lua" 2>&1 | tee "$T/t6.out" | grep -q "T6 OK" || { cat "$T/t6.out"; fail "section 6"; }
-ok "rail agent row shows ○ while idle, ✕ after kill (one-line rows); s X i gt A mapped; :CockpitSpawn/:CockpitAgent exist"
+ok "rail agent card shows ○ while idle, ✕ after kill; s X i gt A mapped; :CockpitSpawn/:CockpitAgent exist"
 [ "$LAST" -le 6 ] && exit 0
 
 # --- 7: review fixes — refresh timer lifecycle, own workspaces only, no tmux leak ------------------
