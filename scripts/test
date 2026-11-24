@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Cockpit unit + contract tests: pytest (via uv) for scripts/cockpit_inbox.py, mini.test in headless nvim for
+# lua/cockpit. No herdr, no Claude, no tmux, no network (mini.nvim is cloned once if lazy.nvim doesn't have it).
+# Usage: scripts/test [py|lua]
+set -euo pipefail
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+cd "$ROOT"
+what=${1:-all}
+# never let a test talk to the tmux / herdr / Claude session this runs in
+unset TMUX TMUX_PANE CLAUDE_CODE_SESSION_ID HERDR_ENV HERDR_PANE_ID HERDR_SOCKET_PATH COCKPIT_HERDR_SESSION COCKPIT_PROJECT
+
+rc=0
+if [ "$what" = all ] || [ "$what" = py ]; then
+  echo "== python"
+  uv run --quiet --no-project --with pytest pytest -q -p no:cacheprovider tests/python || rc=1
+fi
+if [ "$what" = all ] || [ "$what" = lua ]; then
+  echo "== lua"
+  nvim --headless --noplugin -i NONE -u tests/minimal_init.lua -c "lua require('tests.helpers').run()" || rc=1
+fi
+exit $rc

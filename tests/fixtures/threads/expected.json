@@ -1,0 +1,55 @@
+{
+  "basic": {
+    "archived": false,
+    "drafts": [],
+    "open_questions": [],
+    "pending_replies": [],
+    "status": "replied"
+  },
+  "questions": {
+    "archived": false,
+    "drafts": [],
+    "open_questions": [
+      "m1/q1",
+      "m2/q1"
+    ],
+    "pending_replies": [],
+    "status": "needs_you"
+  },
+  "pipeline": {
+    "archived": false,
+    "drafts": [],
+    "open_questions": [],
+    "pending_replies": [
+      "r2"
+    ],
+    "status": "needs_you",
+    "stage": "build",
+    "round": 1
+  },
+  "drafts": {
+    "archived": true,
+    "drafts": [
+      "a1"
+    ],
+    "open_questions": [],
+    "pending_replies": [
+      "r1"
+    ],
+    "status": "replied"
+  },
+  "read": {
+    "archived": false,
+    "drafts": [],
+    "open_questions": [],
+    "pending_replies": [],
+    "status": "read"
+  },
+  "unread": {
+    "archived": false,
+    "drafts": [],
+    "open_questions": [],
+    "pending_replies": [],
+    "status": "unread"
+  }
+}

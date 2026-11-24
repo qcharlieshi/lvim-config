@@ -1,0 +1,3 @@
+{"v": 1, "at": "2026-01-01T00:00:00+00:00", "ts": 100, "id": "m1", "kind": "message", "from": "agent", "text": "x", "attachments": [], "questions": [{"id": "q1", "text": "Which?", "options": ["A", "B"]}], "session": {"agent": "claude", "herdr": {"terminal_id": "term-a"}, "cwd": "/tmp/repo", "pid": 1}, "title": "Questions", "project": "p"}
+{"v": 1, "at": "2026-01-01T00:00:00+00:00", "ts": 105, "id": "s1", "kind": "state", "read": true}
+{"v": 1, "at": "2026-01-01T00:00:00+00:00", "ts": 110, "id": "m2", "kind": "message", "from": "agent", "text": "x", "attachments": [], "questions": [{"id": "q1", "text": "And?", "options": ["A", "B"]}], "session": {"agent": "claude", "herdr": {"terminal_id": "term-a"}, "cwd": "/tmp/repo", "pid": 1}}
