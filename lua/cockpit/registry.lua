@@ -68,12 +68,4 @@ function M.find_session(sid)
   return best
 end
 
-function M.names(project)
-  local set = {}
-  for _, rec in pairs(M.all(project)) do
-    set[rec.name] = true
-  end
-  return set
-end
-
 return M

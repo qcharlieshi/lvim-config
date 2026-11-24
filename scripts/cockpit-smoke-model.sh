@@ -259,6 +259,14 @@ inputs = { "ENG-34501", "saved-views" }
 projects.add_worktree("contextdb-ui")
 local p = projects.get("contextdb-ui")
 assert(#p.repos == 2 and p.repos[2] == R .. "-34501", vim.inspect(p.repos))
+-- a typed slug is cleaned up for the branch, path and default name (no raw git error on spaces)
+selects = { "New worktree", R }
+inputs = { "ENG-36000", "Slack Assist POC!", "" }
+made = nil
+projects.new(function(p) made = p end)
+assert(made and made.name == "slack-assist-poc" and made.repos[1] == R .. "-36000", vim.inspect(made))
+local br2 = vim.trim(vim.system({ "git", "-C", R .. "-36000", "branch", "--show-current" }, { text = true }):wait().stdout)
+assert(br2 == "eng/ENG-36000-slack-assist-poc", br2)
 print("T23 OK")
 LUA
   nlua "$T/t23.lua" 2>&1 | tee "$T/t23.out" | grep -q "T23 OK" || { cat "$T/t23.out"; fail "section 23"; }

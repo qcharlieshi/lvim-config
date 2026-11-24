@@ -128,8 +128,8 @@ local function new_from_dirs(cb)
     if not name or name == "" then
       return
     end
-    if not name:match(NAME) or #name > 28 then
-      return vim.notify("cockpit: project names are [a-z][a-z0-9_-], max 28 chars", vim.log.levels.WARN)
+    if not valid_name(name) then
+      return
     end
     local roots, repos = git_roots(), {}
     local function pick()
@@ -282,8 +282,10 @@ local function pick_worktrees(kind, cb)
           return
         end
         local key = require("cockpit.ticket").find(raw)
-        vim.ui.input({ prompt = "Short slug: " }, function(slug)
-          if not slug or slug == "" then
+        vim.ui.input({ prompt = "Short slug: " }, function(raw_slug)
+          -- "Slack Assist POC!" -> slack-assist-poc: safe in a branch, a path and a project name
+          local slug = require("cockpit.naming").slug(raw_slug, 28)
+          if slug == "" then
             return
           end
           local path, err = M.make_worktree(repo, key, slug)
