@@ -334,7 +334,8 @@ end
 
 -- A name is free if no live agent, no registry record (names are never reused within a project),
 -- no fork/<name>-* branch in the primary repo and no other spawn's claim has it.
-local function free_name(project)
+-- With `base` (cockpit.naming): base, base-2, base-3, …; without: <project>-1, <project>-2, …
+local function free_name(project, base)
   local _, res = M.request("agent.list", {})
   local taken = vim.deepcopy(require("cockpit.registry").names(project))
   for _, a in ipairs((res or {}).agents or {}) do
@@ -346,7 +347,7 @@ local function free_name(project)
   local repo = p and p.repos[1]
   local n = 1
   while true do
-    local cand = project .. "-" .. n
+    local cand = not base and project .. "-" .. n or n == 1 and base or base .. "-" .. n
     if not taken[cand] then
       local out = repo and vim.system({ "git", "-C", repo, "branch", "--list", "fork/" .. cand .. "-*" }, { text = true }):wait().stdout or ""
       if vim.trim(out) == "" and claim(project, cand) then
@@ -358,6 +359,19 @@ local function free_name(project)
 end
 
 M.free_name = free_name
+
+-- the value of -n / --name / --name=x in claude args, if any
+local function name_arg(args)
+  for i, a in ipairs(args) do
+    if (a == "-n" or a == "--name") and args[i + 1] then
+      return args[i + 1]
+    end
+    local v = a:match("^%-%-name=(.+)$")
+    if v then
+      return v
+    end
+  end
+end
 
 -- The pane to start an agent in: create the project's ck/ workspace and use its fresh root pane,
 -- or split a new pane into the existing one. Never reuses a pane cockpit didn't just create.
@@ -435,6 +449,10 @@ function M.start_in(pane_id, name, args, rec, cb, opts)
     -- Over the socket, agent.start returns at launch; readiness (the CLI's wait) is ours to do.
     -- Not for the launcher (interactive == false): you attach right away and see whatever Claude shows
     -- (trust dialog, resume picker, login), so waiting would only delay the attach.
+    -- the same name as Claude's session name (what /resume and other sessions show), unless given
+    if not name_arg(args) then
+      args = vim.list_extend({ "-n", name }, args)
+    end
     M.request("agent.start", { name = name, kind = "claude", pane_id = pane_id, args = args, timeout_ms = 60000 }, function(serr)
       if serr or not interactive then
         return started(serr)
@@ -453,6 +471,7 @@ end
 
 -- Start a Claude agent in `project`; cb(err, name, pane_id). opts.args: extra claude args (appended);
 -- opts.profile: cockpit.profiles name (default "default"), recorded in the registry;
+-- opts.name: typed agent name (empty/nil → derived by cockpit.naming, else <project>-<n>);
 -- opts.interactive = false: no attach prompt when blocked at startup (cb still gets the name).
 -- opts.cwd: the pane's cwd (default: the primary repo). opts.env: base pane env (COCKPIT_* win).
 -- opts.on_pane(pane_id): called as soon as the pane exists (the launcher closes it if it gives up).
@@ -482,7 +501,9 @@ function M.spawn(project, prompt, cb, opts)
   vim.list_extend(args, require("cockpit.profiles").args(opts.profile))
   vim.list_extend(args, opts.args or {})
   local rec = { project = project, profile = opts.profile or "default" }
-  M.start_in(pane_id, free_name(project), args, rec, function(serr, name)
+  local typed = opts.name or name_arg(opts.args or {}) -- `claude -n foo` through the launcher
+  local base = require("cockpit.naming").base(project, { name = typed, dir = opts.cwd or p.repos[1], prompt = prompt })
+  M.start_in(pane_id, free_name(project, base), args, rec, function(serr, name)
     if not serr and prompt and prompt ~= "" then
       M.request("agent.prompt", { target = name, text = prompt }, function() end)
     end

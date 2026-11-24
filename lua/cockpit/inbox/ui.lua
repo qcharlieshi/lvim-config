@@ -1292,10 +1292,15 @@ function M.spawn(project)
   local projects, herdr = require("cockpit.projects"), require("cockpit.herdr")
   local function go(name)
     require("cockpit.profiles").pick(function(profile)
-      vim.ui.input({ prompt = "First prompt (optional): " }, function(text)
-        if text ~= nil then
-          herdr.spawn(name, text, nil, { profile = profile })
+      vim.ui.input({ prompt = "Agent name (empty = auto): " }, function(agent)
+        if agent == nil then
+          return
         end
+        vim.ui.input({ prompt = "First prompt (optional): " }, function(text)
+          if text ~= nil then
+            herdr.spawn(name, text, nil, { profile = profile, name = agent })
+          end
+        end)
       end)
     end)
   end

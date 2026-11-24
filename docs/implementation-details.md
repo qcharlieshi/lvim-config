@@ -73,6 +73,7 @@ Agent review inbox + agent runtime front end. Agents (Claude Code) post document
 | `lua/cockpit/transcript.lua` | Claude transcript reader (`~/.claude/projects/*/<sid>.jsonl`): user/assistant text, one line per tool call, slash commands; skips subagent (sidechain) and meta lines. Incremental: re-reads only appended bytes |
 | `lua/cockpit/sessions.lua` | Read-only discovery of Claude sessions you started yourself in tmux (not run by herdr) |
 | `lua/cockpit/forks.lua` | `continue` / `worktree` forks of an agent's session (`--resume <id> --fork-session`) |
+| `lua/cockpit/naming.lua` | Agent names `<project>-<label>`: typed name › ticket (branch, then prompt) › meaningful branch › prompt words; `herdr.free_name` falls back to `<project>-<n>` and adds `-2`, `-3` on clashes. The name is also passed as `claude -n` |
 | `lua/cockpit/profiles.lua` | Launch profiles picked on spawn/fork (model, effort, plugins, `--settings`…). Built-in `default` adds no flags; more in `~/.cockpit/profiles.json`. The picker is skipped while `default` is the only one; the choice is recorded as `profile` in `agents.jsonl` |
 | `lua/cockpit/inbox/store.lua` | Reads and writes the JSONL shared with the Python CLI; derives thread state; delivers replies |
 | `lua/cockpit/inbox/ui.lua` | The tab: rail (left) · workspace (deliverable) · thread (bottom); composer + notes float |
