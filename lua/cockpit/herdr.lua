@@ -569,8 +569,31 @@ function M.interrupt(target)
   return (M.request("agent.send_keys", { target = target, keys = { "esc" } }))
 end
 
+-- tmux pane where cockpit-claude already has this agent attached (herdr allows one client per terminal)
+local function attached_pane(target)
+  local tid
+  for _, a in pairs(cache) do
+    if a.target == target then
+      tid = a.terminal_id
+    end
+  end
+  local dir = vim.fn.expand(vim.env.COCKPIT_ATTACH_DIR or "~/.cockpit/attached")
+  local f = tid and io.open(dir .. "/" .. tid, "r")
+  if not f then
+    return nil
+  end
+  local pane = vim.trim(f:read("*a") or "")
+  f:close()
+  local panes = vim.fn.systemlist({ "tmux", "list-panes", "-a", "-F", "#{pane_id}" })
+  return vim.tbl_contains(panes, pane) and pane or nil
+end
+
 function M.attach(target)
   local argv = M.cli("agent", "attach", target)
+  local pane = vim.env.TMUX and attached_pane(target)
+  if pane then
+    return require("cockpit.sessions").attach(pane)
+  end
   if vim.env.TMUX then
     vim.system({ "tmux", "new-window", "-n", target, table.concat(vim.tbl_map(vim.fn.shellescape, argv), " ") })
   else
