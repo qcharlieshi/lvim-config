@@ -128,6 +128,7 @@ function M.thread(id)
   -- landing in the same second the thread was opened is still unread
   local t = { id = id, messages = {}, sent = {}, read_ts = 0, read_seq = 0, archived = false, last_ts = 0 }
   local notes, deleted, sent_ids, rounds = {}, {}, {}, {}
+  local acked, attempts = {}, {} -- reply id -> true / delivery events naming it
   for i, e in ipairs(events) do
     e.seq = i
     if e.kind == "message" then
@@ -162,6 +163,28 @@ function M.thread(id)
       end
       if e.archived ~= nil then
         t.archived = e.archived
+      end
+    elseif e.kind == "ack" and e.reply then
+      acked[e.reply] = true
+    elseif e.kind == "delivery" then
+      for _, rid in ipairs(e.replies or {}) do
+        attempts[rid] = attempts[rid] or {}
+        table.insert(attempts[rid], e)
+      end
+    end
+  end
+  -- Outbox (delivery.lua): replies the agent hasn't acked, each with its delivery attempts; undelivered = none
+  -- of them reached the agent yet
+  t.unacked, t.undelivered = {}, {}
+  for _, m in ipairs(t.messages) do
+    if m.kind == "reply" and not acked[m.id] then
+      m.attempts = attempts[m.id] or {}
+      m.delivered = vim.iter(m.attempts):any(function(d)
+        return d.ok == true
+      end)
+      t.unacked[#t.unacked + 1] = m
+      if not m.delivered then
+        t.undelivered[#t.undelivered + 1] = m
       end
     end
   end
@@ -384,42 +407,9 @@ function M.save_card(card)
   return M.append(M.path("cards.jsonl"), snap)
 end
 
--- The CLI touches waiting/<id> every 2s while an agent blocks in `wait`
-function M.agent_waiting(id)
-  local stat = vim.uv.fs_stat(M.path("waiting", id))
-  return stat ~= nil and os.time() - stat.mtime.sec < 10
-end
-
--- Blocked agents read the reply themselves; otherwise nudge the agent's tmux pane with a
--- one-line trigger (multi-line pastes would submit early) — Claude queues it if mid-turn.
+-- Delivery lives in delivery.lua (store = events only); kept for ui.lua's send()
 function M.deliver(t)
-  if M.agent_waiting(t.id) then
-    return "agent was waiting and has it"
-  end
-  local msg = ("Inbox reply on thread %s. Run: python3 %s read %s --new"):format(t.id, M.cli, t.id)
-  -- herdr agents: join on terminal_id (pane ids restart after a server restart), deliver with agent.prompt
-  local hid = t.session and t.session.herdr
-  if hid then
-    local herdr = require("cockpit.herdr")
-    local agent = herdr.by_terminal(hid.terminal_id)
-    if agent then
-      return herdr.prompt(agent.target, msg)
-    end
-    -- never fall through to tmux: a tmux_pane on a herdr thread is leaked env, i.e. someone else's pane
-    return "agent offline; reply kept for the next reader"
-  end
-  local pane = t.session and t.session.tmux_pane
-  if not pane then
-    return "no agent pane; it can run `read " .. t.id .. " --new`"
-  end
-  -- list-panes, not display-message: display -t falls back to the current pane when the target is gone
-  local panes = vim.system({ "tmux", "list-panes", "-a", "-F", "#{pane_id}" }, { text = true }):wait().stdout or ""
-  if not vim.tbl_contains(vim.split(panes, "\n", { trimempty = true }), pane) then
-    return "agent pane " .. pane .. " is gone; reply kept for the next reader"
-  end
-  vim.system({ "tmux", "send-keys", "-t", pane, "-l", msg }):wait()
-  vim.system({ "tmux", "send-keys", "-t", pane, "Enter" }):wait()
-  return "delivered to pane " .. pane
+  return require("cockpit.inbox.delivery").deliver(t)
 end
 
 -- One line per steer: the why-tagged dataset the harness-improvement loop mines later

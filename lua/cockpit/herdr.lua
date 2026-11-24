@@ -491,15 +491,15 @@ function M.attach(target)
   end
 end
 
--- Submit text as a prompt; returns a one-line status for the user.
+-- Submit text as a prompt; returns a one-line status for the user, and whether herdr accepted it.
 function M.prompt(target, text)
   local err = M.request("agent.prompt", { target = target, text = text })
   if not err then
-    return "delivered to " .. target
+    return "delivered to " .. target, true
   elseif err.code == "agent_blocked" then
-    return target .. " is at a dialog — attach to answer"
+    return target .. " is at a dialog — attach to answer", false
   end
-  return target .. ": " .. (err.message or err.code)
+  return target .. ": " .. (err.message or err.code), false
 end
 
 function M.by_terminal(terminal_id)

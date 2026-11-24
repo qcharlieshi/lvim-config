@@ -4,9 +4,10 @@ local store = require("cockpit.inbox.store")
 local M = {}
 
 local seen = {} -- tid -> last message id already notified
+local flush_timer
 
-local function notify_new()
-  for _, t in ipairs(store.threads()) do
+local function notify_new(threads)
+  for _, t in ipairs(threads) do
     local last = t.messages[#t.messages]
     if last and last.kind == "message" and seen[t.id] ~= last.id then
       local what = t.status == "needs_you" and "waiting on you" or "new message"
@@ -25,7 +26,9 @@ local function watch()
       0,
       vim.schedule_wrap(function()
         require("cockpit.inbox.ui").refresh()
-        notify_new()
+        local threads = store.threads()
+        notify_new(threads)
+        require("cockpit.inbox.delivery").flush(threads)
       end)
     )
   end
@@ -68,12 +71,21 @@ function M.setup()
   vim.api.nvim_create_user_command("CockpitAgent", function()
     ui().pick_agent()
   end, { desc = "Pick a live herdr agent: attach / interrupt / kill / prompt" })
+  local group = vim.api.nvim_create_augroup("cockpit_inbox", { clear = true })
   vim.api.nvim_create_autocmd("User", {
+    group = group,
     pattern = "CockpitAgents",
     callback = function()
       ui().refresh_rail()
+      -- an agent came back or went idle: hand it the replies it missed
+      require("cockpit.inbox.delivery").flush()
     end,
   })
+  -- tmux sessions emit no events: a slow sweep catches a reply whose pane came back
+  flush_timer = flush_timer or assert(vim.uv.new_timer())
+  flush_timer:start(60000, 60000, vim.schedule_wrap(function()
+    require("cockpit.inbox.delivery").flush()
+  end))
   require("cockpit.herdr").start()
   vim.api.nvim_create_user_command("CockpitProject", function(o)
     local projects = require("cockpit.projects")

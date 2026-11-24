@@ -217,8 +217,11 @@ local f = vim.fn.glob(store.path("threads", "*-s5.jsonl"), false, true)[1]
 assert(f, "agent did not post s5")
 local t = store.thread(vim.fn.fnamemodify(f, ":t:r"))
 assert(t.session.herdr and t.session.herdr.terminal_id, "s5 has no herdr identity")
+-- deliver() sends unacked replies only (outbox): reply first
+store.append(store.thread_file(t.id), { kind = "reply", from = "human", text = "smoke reply" })
 local how = store.deliver(t)
 assert(how:find("^delivered"), "deliver returned: " .. how)
+assert(#store.thread(t.id).undelivered == 0, "delivered reply still undelivered")
 assert(vim.wait(180000, function()
   local _, r = h.request("agent.read", { target = name, source = "recent_unwrapped", lines = 80 })
   return r and vim.inspect(r):find("Inbox reply on thread", 1, true) ~= nil
@@ -226,8 +229,10 @@ end, 1000), "reply never reached the agent")
 -- Review Focus 3: killed agent -> offline, never another pane
 h.kill(name)
 assert(vim.wait(10000, function() return h.by_terminal(t.session.herdr.terminal_id) == nil end), "still cached")
+store.append(store.thread_file(t.id), { kind = "reply", from = "human", text = "after kill" })
 local how2 = store.deliver(t)
 assert(how2:find("offline", 1, true), "deliver after kill returned: " .. how2)
+assert(#store.thread(t.id).undelivered == 1, "reply to a dead agent not queued")
 print("T5 OK")
 LUA
 CLI=$CLI nlua "$T/t5.lua" 2>&1 | tee "$T/t5.out" | grep -q "T5 OK" || { cat "$T/t5.out"; fail "section 5"; }
