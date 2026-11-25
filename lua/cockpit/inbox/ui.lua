@@ -635,6 +635,15 @@ function M.select_agent(node)
   size_thread()
   local wb = scratch("cockpit://conversation", "cockpit-empty")
   set_lines(wb, { "  conversation below · r chat · <CR> on a 📮 post opens it" })
+  -- the hint advertises r: without these, r here was vim's replace on a read-only buffer (E21)
+  local akey = node.akey or node.terminal_id
+  map(wb, "r", function()
+    convo.compose(akey)
+  end, "Chat with agent")
+  map(wb, "<CR>", function()
+    vim.api.nvim_set_current_win(ck.thread)
+  end, "Go to the conversation")
+  common_maps(wb)
   vim.api.nvim_win_set_buf(ck.work, wb)
   vim.wo[ck.work].winbar = ""
   local dir = node.agent and node.agent.cwd
