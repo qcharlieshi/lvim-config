@@ -76,13 +76,18 @@ Agent review inbox + agent runtime front end. Agents (Claude Code) post document
 | `lua/cockpit/sessions.lua` | Model / context / last words for herdr agents, from the statusline files in `~/.cockpit/status/` and their transcripts |
 | `lua/cockpit/forks.lua` | `continue` / `worktree` forks of an agent's session (`--resume <id> --fork-session`) |
 | `lua/cockpit/naming.lua` | Agent names `<project>-<label>` (= herdr name = tab label = `claude -n`). `herdr.name_base`: typed name › the ticket of the agent's dir or the project's `ticket` (`lilt-eng-35131`) › `naming.base` (ticket in the prompt, meaningful branch, prompt words). `herdr.free_name` falls back to `<project>-<n>` and adds `-2`, `-3`. A `<project>-<n>` agent is renamed once (agent + tab) when its session title names a ticket |
-| `lua/cockpit/profiles.lua` | Launch profiles picked on spawn/fork (model, effort, plugins, `--settings`…). Built-in `default` adds no flags; more in `~/.cockpit/profiles.json`. The picker is skipped while `default` is the only one; the choice is recorded as `profile` in `agents.jsonl` |
+| `lua/cockpit/profiles.lua` | Launch profiles picked on spawn/fork (model, effort, plugins, `--settings`…). Built-in `default` adds no flags; more in `~/.cockpit/profiles.json`. The picker is skipped while `default` is the only one; the choice is recorded as `profile` in `agents.jsonl`. Hidden built-ins, never offered (profiles.json can override them by name): `coordinator` and `ask` (opus, effort medium), `digest` (sonnet, effort low: the coordinator's `cockpit-ctl ask`) |
 | `lua/cockpit/inbox/store.lua` | Reads and writes the JSONL shared with the Python CLI; derives thread state. Events only, no transports |
 | `lua/cockpit/inbox/delivery.lua` | Reply delivery + outbox: herdr `agent.prompt`, retried until the agent has it |
 | `lua/cockpit/inbox/ui.lua` | The tab: rail (left) · workspace (deliverable) · thread (bottom); composer + notes float |
 | `lua/cockpit/inbox/rail.lua`, `tree.lua` | Rail rendering; `tree.lua` is the pure project → agent → fork → thread model |
 | `lua/cockpit/inbox/convo.lua` | Agent conversation view (rail `<CR>` on any agent, live or dead): its transcript(s) with its inbox posts and your replies interleaved by time; `r` chat composer sends through herdr `agent.prompt`. Refreshed on a 3 s tick while the cockpit is open, keyed on transcript size/mtime (the rail itself follows herdr and inbox events) |
 | `lua/cockpit/inbox/review.lua` | Diff deliverables in CodeDiff, rebuilt from the sent patch (never touches the agent's worktree) |
+| `lua/cockpit/coordinator.lua` | The coordinator: one long-lived herdr agent (`cockpit-coordinator`) in its own `cockpit` project (dir `~/.cockpit/coordinator/`, pinned first in the rail). Started on the first ask, resumed from the registry after an nvim/herdr restart. Barebones launch (see **Coordinator & asks**), and rotation instead of compaction |
+| `scripts/cockpit-coordinator.md` | The coordinator's system prompt template (`{{CTL}}`, `{{DIR}}` filled in at launch → `~/.cockpit/coordinator/system-prompt.md`) |
+| `lua/cockpit/ctl.lua`, `scripts/cockpit-ctl`, `scripts/cockpit_ctl.py` | `cockpit-ctl`: the coordinator's CLI. Terse one-line-per-item verbs (`agents` with ✋ waiting-thread counts and purpose, `threads`, `projects`, `spawn`, `fork`, `prompt`, `reply`, `kill`, `purpose`); Python connects to the cockpit nvim with pynvim and calls `ctl.run(argv)`. `ask` (one-off on the `digest` profile with no MCP/skills, or `--fork` on the agent's own launch profile so it can reuse that conversation's prompt cache; prints only the answer), `open` and `bridge` (nvim_bridge.py, never `exec`/`cmd`) run on the Python side. `reply` appends a normal reply (delivered as usual) tagged `relayed_by: coordinator`; `kill` is the rail's `X` without the confirm and refuses the coordinator itself |
+| `lua/cockpit/ask.lua` | `<leader>kk` composer (float prefilled with context; `<C-t>` cycles target coordinator → one-off → fork) and the one-off runner: `claude -p --output-format stream-json` with the `ask` profile, read-only tools + Exa + `cockpit-ctl open/bridge`, answer streamed into `~/.cockpit/asks/<id>.md`; answer float (`r` follow-up in the same session, `>` hand to coordinator, `x` cancel), `<leader>kK` history picker |
+| `lua/cockpit/context.lua` | What the window you asked from shows, as references: file:line / selection (excerpt capped at 40 lines), repo + branch + project; rail agent / thread / project row; conversation view; deliverable + thread. Also returns the live agent a fork one-off would resume |
 
 ### File system (`~/.cockpit/`)
 
@@ -108,8 +113,14 @@ Logs are append-only JSONL and are never rewritten. All state (status, drafts, r
 │       ├── project.json        {name, repos[] (any dirs), ticket?, created}; repos[0] is primary (workspace cwd); an agent's tab starts in one dir, the others are --add-dir
 │       ├── repos/<basename>    symlink → repo (collision → <basename>-2)
 │       ├── threads/<tid>.jsonl symlink → inbox thread (browsing only; nothing reads through it)
-│       ├── agents.jsonl        {session, terminal_id, name, project, dir, tab_id, pane_id, profile, ts, dead?, moved?, renamed?}; forks add fork ("continue"|"worktree"), parent_session, parent_terminal, parent_name, worktrees[{repo, path, branch, base}]; latest line per session wins (pre-session lines: per terminal_id). `m` (move) appends to the target project's file; across projects the newest record wins
+│       ├── agents.jsonl        {session, terminal_id, name, project, dir, tab_id, pane_id, profile, ts, dead?, moved?, renamed?}; prompt? (first prompt, ≤ 300 chars), purpose? (set by `cockpit-ctl purpose`); forks add fork ("continue"|"worktree"), parent_session, parent_terminal, parent_name, worktrees[{repo, path, branch, base}]; latest line per session wins (pre-session lines: per terminal_id). `m` (move) appends to the target project's file; across projects the newest record wins
 │       └── names/<name>        O_EXCL name claims so two spawns can't take the same name
+├── coordinator/                $COCKPIT_COORDINATOR_DIR: the coordinator's cwd (project `cockpit`)
+│   ├── SCRATCHPAD.md           its durable notes (Now · Decisions · Open questions · Notes); seeds each fresh session
+│   ├── TODO.md                 follow-ups you asked it to track (checkbox list); also seeds each fresh session
+│   ├── system-prompt.md        rendered from scripts/cockpit-coordinator.md at each launch
+│   └── nvim                    socket of the nvim that asked last: where cockpit-ctl / the bridge act
+├── asks/<YYYYMMDD-HHMMSS-slug>.md  $COCKPIT_ASKS_DIR: one-offs — question, context, streamed answer, follow-ups, `<!-- session: … -->` footers
 ├── attached/<terminal_id>      $COCKPIT_ATTACH_DIR: tmux pane id where cockpit-claude has this herdr agent attached
 └── status/<session_id>.json    $COCKPIT_STATUS_DIR: status line input JSON saved by claude-statusline.sh (nix-darwin dotfiles)
 ```
@@ -121,7 +132,7 @@ Logs are append-only JSONL and are never rewritten. All state (status, drafts, r
 | `message` | agent | `text`, `attachments[]`, `questions[{id,text,options}]`, `gate`, `stage`, `pipeline`, `stages`, `session{agent,tmux_pane,herdr{pane_id,workspace_id,terminal_id,name,session_id},session_id,cwd,pid}`; first message also has `title`, `project` |
 | `annotation` | you | `sha256`, `attachment`, `line_start`, `line_end`, `quote`, `loc`, `label`, `blocking`, `text` |
 | `annotation_deleted` | you | `target` |
-| `reply` | you | `verdict` (approve · approve_with_notes · changes_requested · reject · none), `text`, `answers[]`, `annotations[]` (the drafts it sends), `edits[{attachment, sha256, path, patch_sha256}]` (the patch body is in `blobs/`; older replies carry it inline as `patch`), `stage`, `round` |
+| `reply` | you | `verdict` (approve · approve_with_notes · changes_requested · reject · none), `relayed_by` ("coordinator" when sent through `cockpit-ctl reply`; also copied to its `feedback.jsonl` lines), `text`, `answers[]`, `annotations[]` (the drafts it sends), `edits[{attachment, sha256, path, patch_sha256}]` (the patch body is in `blobs/`; older replies carry it inline as `patch`), `stage`, `round` |
 | `ack` | agent | `reply` (id the agent has read) |
 | `delivery` | you | `replies[]` (reply ids this attempt covers), `ok`, `via` (herdr · wait; absent when no agent was reachable), `target`, `detail` |
 | `state` | you | `read`, `archived` |
@@ -170,6 +181,18 @@ Logs are append-only JSONL and are never rewritten. All state (status, drafts, r
   - Each attempt is claimed first with an O_EXCL file in `outbox/`, so several nvims flushing at once prompt only once.
 - **Turn diffs** (`post --diff` with no REV, inside a Claude session): one diff per repo the turn touched, compared against the `turns/` snapshot. The snapshot comes from `git stash create`, so your own uncommitted work is left out. Repos without a snapshot fall back to the edited files vs HEAD.
   - **Not wired yet:** `hook prompt` (UserPromptSubmit) isn't registered in `~/.claude/settings.json`, so `turns/` is never written and only the fallback runs.
+
+### Coordinator & asks
+
+- **Ask** (`<leader>kk`, visual for a selection, `:CockpitAsk`): the composer float holds your question above a `## Context` block (`context.lua`) you can edit or delete. `:w` sends it to the target in the title; `<C-t>` cycles:
+  - **coordinator** (default): `herdr agent.prompt` to the live coordinator, started (or resumed) first. A fresh session's first message is prefixed with `SCRATCHPAD.md`. Its answer shows in its conversation view (`<leader>kc`).
+  - **one-off**: headless `claude -p`, nobody's herdr agent (no `HERDR_*`/`TMUX`, `COCKPIT_INBOX_HOOK=0`, so neither the inbox Stop hook nor herdr's hook sees it); `NVIM_LISTEN_ADDRESS` = this nvim, so `cockpit-ctl open` opens files here. Notifies `Ask ✓` when done.
+  - **fork** (only when the context has a live agent): a one-off with `--resume <agent session> --fork-session` — the agent's whole conversation, without adding to it.
+- **Coordinator launch** (`coordinator.args`): profile `coordinator` (model/effort) plus `--system-prompt-file` (replaces Claude Code's default prompt), `--tools Bash,Read,Grep,Glob,Edit,Write`, `--strict-mcp-config` (no MCP servers), `--disable-slash-commands` (no skills, and no `/compact` `/context` either), and `--settings` allowing `Bash(<cockpit-ctl>:*)`, `Read` under `~/dev`, `~/.config`, `~/.cockpit` and every project dir, `Edit`/`Write` only in `~/.cockpit/coordinator/`. Anything else prompts (rail `⚠`, attach with `gT`). Measured starting context: ~11k tokens vs ~35k for a default session (Nov 2026; the global `~/.claude/CLAUDE.md` still loads — `--bare` would skip it but only works with `ANTHROPIC_API_KEY`). The system prompt snapshot (on by default) keeps the prompt across `--resume`.
+- **Role and autonomy**: it is the natural-language interface to cockpit. It acts on the herd (spawn, fork, prompt, reply, kill) only when you asked, saying the action in one line and waiting for your yes; your feedback is relayed verbatim. `cockpit-ctl prompt` refuses a working agent unless `--now`.
+- **State lives in cockpit, not in its notes**: agent status, threads and projects come from `cockpit-ctl`; what an agent is for is in the registry (`prompt` at spawn, `purpose` set by the coordinator). Its notes files hold only what cockpit can't know: your focus, decisions, open questions, notes, and `TODO.md`.
+- **Rotation** (instead of autocompact; Opus has a 1M window, so autocompact fires late and every turn re-sends everything): `coordinator.check()` runs on `CockpitAgents` and every 20 s while a coordinator is live. When it is idle and its context (`sessions.by_herdr_pane` tokens) ≥ `vim.g.cockpit_coordinator_rotate_tokens` (default 120000), it is sent `[cockpit] checkpoint …` (update the scratchpad, reply `done`); once that turn has run (working → idle, or after 10 min) its tab is closed and its registry record marked `dead, rotated` (hidden from Past unless `g.`). The next ask starts a fresh session seeded with the scratchpad. `<leader>kR` / `:CockpitCoordinator rotate` does it now.
+- **First run**: `~/.cockpit/coordinator` is a new folder, so Claude stops at its trust dialog once: attach (`gT` on the coordinator row) and accept, then ask again.
 
 ### Tests
 

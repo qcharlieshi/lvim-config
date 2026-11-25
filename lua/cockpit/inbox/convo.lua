@@ -362,6 +362,12 @@ function M.buf(tid, node)
   return buf
 end
 
+-- the agent a conversation buffer shows ({ akey, node }), for ask context
+function M.view(buf)
+  local v = views[buf]
+  return v and { akey = v.tid, node = node_of(v) }
+end
+
 -- re-render visible conversations (cheap when nothing changed: keyed on transcript size/mtime)
 function M.refresh()
   for buf, _ in pairs(views) do

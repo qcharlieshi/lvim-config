@@ -1408,6 +1408,11 @@ function M.pick_agent()
   end)
 end
 
+-- what a cockpit buffer shows ({ kind = "rail"|"thread"|"attachment"|"composer"|"board", tid?, att? }), for ask context
+function M.view(buf)
+  return views[buf]
+end
+
 function M.refresh_rail()
   for buf, v in pairs(views) do
     if v.kind == "rail" and vim.api.nvim_buf_is_valid(buf) then

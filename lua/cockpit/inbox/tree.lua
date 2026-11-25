@@ -321,7 +321,11 @@ function M.build(opts)
     end
     projects[#projects + 1] = p
   end
+  local pinned = require("cockpit.coordinator").PROJECT -- the coordinator's project always leads
   table.sort(projects, function(a, b)
+    if (a.name == pinned) ~= (b.name == pinned) then
+      return a.name == pinned
+    end
     if a.urgency ~= b.urgency then
       return a.urgency < b.urgency
     end

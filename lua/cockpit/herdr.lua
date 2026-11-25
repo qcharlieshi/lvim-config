@@ -532,7 +532,7 @@ end
 -- opts.args: extra claude args (appended). opts.profile: cockpit.profiles name (default "default"), recorded in
 -- the registry. opts.name: typed agent name (else derived, see M.name_base). opts.interactive = false: no
 -- attach prompt when blocked at startup (cb still gets the name). opts.env: base pane env (COCKPIT_* win).
--- opts.on_pane(pane_id): called as soon as the pane exists (the launcher closes it if it gives up).
+-- opts.on_pane(pane_id, name): called as soon as the pane exists (the launcher closes it if it gives up).
 function M.spawn(project, prompt, cb, opts)
   opts = opts or {}
   cb = cb or function() end
@@ -557,7 +557,7 @@ function M.spawn(project, prompt, cb, opts)
       return cb(err)
     end
     if opts.on_pane then
-      opts.on_pane(pane_id)
+      opts.on_pane(pane_id, name)
     end
     local args = {}
     for _, r in ipairs(p.repos) do
@@ -567,8 +567,14 @@ function M.spawn(project, prompt, cb, opts)
     end
     vim.list_extend(args, require("cockpit.profiles").args(opts.profile))
     vim.list_extend(args, opts.args or {})
-    local rec =
-      { project = project, dir = dir, tab_id = tab_id, pane_id = pane_id, profile = opts.profile or "default" }
+    local rec = {
+      project = project,
+      dir = dir,
+      tab_id = tab_id,
+      pane_id = pane_id,
+      profile = opts.profile or "default",
+      prompt = (prompt and prompt ~= "") and prompt:sub(1, 300) or nil, -- what it was started for (cockpit-ctl agents)
+    }
     M.start_in(pane_id, name, args, rec, function(serr, started)
       if not serr and prompt and prompt ~= "" then
         M.request("agent.prompt", { target = started, text = prompt }, function() end)

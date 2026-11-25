@@ -98,6 +98,7 @@ local function start(parent, session, cwd, add_dirs, system, prompt, rec, cb, un
     parent_terminal = parent.terminal_id,
     parent_session = parent.session_id,
     parent_name = parent.name,
+    prompt = (prompt and prompt ~= "") and prompt:sub(1, 300) or nil,
     dir = cwd,
     tab_id = tab_id,
     pane_id = pane_id,

@@ -424,6 +424,7 @@ end
 -- One line per steer: the why-tagged dataset the harness-improvement loop mines later
 function M.ledger(t, reply)
   local base = { thread = t.id, title = t.title, project = t.project, agent = t.agent, reply = reply.id }
+  base.relayed_by = reply.relayed_by -- "coordinator": sent for the engineer on their instruction
   local file = M.path("feedback.jsonl")
   base.stage, base.round = t.stage, t.round
   if reply.verdict then

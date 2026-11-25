@@ -124,6 +124,47 @@ function M.setup()
   vim.keymap.set("n", "<leader>kb", function()
     ui().board()
   end, { desc = "Cockpit board" })
+
+  -- ask from anywhere: coordinator (default) / one-off / fork one-off, with context from where you are
+  local function ask(o)
+    require("cockpit.ask").compose(o)
+  end
+  vim.keymap.set("n", "<leader>kk", ask, { desc = "Cockpit: ask (coordinator / one-off)" })
+  vim.keymap.set("x", "<leader>kk", function()
+    local l1, l2 = vim.fn.line("v"), vim.fn.line(".")
+    vim.cmd("normal! \27")
+    ask({ l1 = math.min(l1, l2), l2 = math.max(l1, l2) })
+  end, { desc = "Cockpit: ask about the selection" })
+  vim.keymap.set("n", "<leader>kK", function()
+    require("cockpit.ask").pick()
+  end, { desc = "Cockpit: past asks" })
+  vim.keymap.set("n", "<leader>kc", function()
+    require("cockpit.coordinator").open()
+  end, { desc = "Cockpit: coordinator conversation" })
+  vim.keymap.set("n", "<leader>kR", function()
+    require("cockpit.coordinator").rotate()
+  end, { desc = "Cockpit: rotate the coordinator" })
+  vim.api.nvim_create_user_command("CockpitAsk", function(o)
+    ask(o.range > 0 and { l1 = o.line1, l2 = o.line2 } or nil)
+  end, { range = true, desc = "Ask the coordinator / a one-off, with context" })
+  vim.api.nvim_create_user_command("CockpitCoordinator", function(o)
+    local c = require("cockpit.coordinator")
+    if o.args == "rotate" then
+      c.rotate()
+    elseif o.args == "start" then
+      c.remember_nvim()
+      c.ensure(function() end)
+    else
+      c.open()
+    end
+  end, {
+    nargs = "?",
+    desc = "Cockpit coordinator: open | start | rotate",
+    complete = function()
+      return { "open", "start", "rotate" }
+    end,
+  })
+  require("cockpit.coordinator").setup()
   watch()
 end
 

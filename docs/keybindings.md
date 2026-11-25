@@ -23,6 +23,8 @@
 - Thread: `A` approve (with notes/edits if any) · `N` +notes · `C` changes · `X` reject · `r` reply · `1`–`9` pick option · `<CR>` open file / pick · `]f`/`[f` files · `q` rail · composer `:w` sends
 - Agents (herdr, `lua/cockpit/herdr.lua`): rail `s` spawn into a project · `A` agent picker (focus/attach/interrupt/kill/prompt) · on a run: `X` kill its agent (confirm) · `N` fresh conversation (kills it, new tab in the same dir; use instead of `/clear`) · `m` move to another project · `i` interrupt · `gt` focus in the herdr TUI · `gT` attach in tmux (jumps to the pane `claude` already attached it in, else a new window). Rail glyph = the run's agent: `◐` working · `⚠` blocked · `○` idle · `✕` offline
 - `:CockpitSpawn [project]` · `:CockpitAgent` · `:CockpitProject new|edit|add-worktree [name]` (projects: `~/.cockpit/projects/<name>/project.json`, any set of dirs incl. worktrees; new = from dirs / a new worktree / existing worktrees)
+- Ask (`lua/cockpit/ask.lua`): `<leader>kk` (normal / visual) or `:[range]CockpitAsk` — composer float with the context of where you are; `<C-t>` target coordinator → one-off → fork (fork only when the context has a live agent) · `:w` send · `q` cancel. `<leader>kK` past one-offs (answer float: `r` follow-up · `>` hand to coordinator · `x` cancel · `q` close)
+- Coordinator (`lua/cockpit/coordinator.lua`): `<leader>kc` its conversation · `<leader>kR` rotate now · `:CockpitCoordinator open|start|rotate`
 - `<leader>kb` / `:InboxBoard`: manual card board (legacy)
 
 **Diagnostics:**

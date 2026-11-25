@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# cockpit-ctl: the coordinator's CLI (scripts/cockpit_ctl.py), run with nvim's Python host venv (has pynvim)
+PY="$HOME/.local/share/nvim-python-venv/bin/python"
+[ -x "$PY" ] || PY=python3
+exec "$PY" "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cockpit_ctl.py" "$@"

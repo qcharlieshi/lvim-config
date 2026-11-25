@@ -551,7 +551,8 @@ end
 
 -- X: kill the agent's pane, archive the threads it owns, mark it dead in the registry.
 -- Accepts a rail agent node or a herdr cache entry (from the agent picker).
--- opts.prompt replaces the confirm text; opts.done() runs after a successful kill.
+-- opts.prompt replaces the confirm text; opts.confirmed skips the confirm (the engineer already said yes elsewhere,
+-- e.g. to the coordinator); opts.done() runs after a successful kill.
 function M.kill_agent(node, opts)
   opts = opts or {}
   local herdr, registry = require("cockpit.herdr"), require("cockpit.registry")
@@ -584,7 +585,7 @@ function M.kill_agent(node, opts)
   if forks > 0 then
     msg = msg .. (" (%d forks keep running)"):format(forks)
   end
-  if vim.fn.confirm(opts.prompt or msg, "&Yes\n&No", 2) ~= 1 then
+  if not opts.confirmed and vim.fn.confirm(opts.prompt or msg, "&Yes\n&No", 2) ~= 1 then
     return
   end
   if a then

@@ -10,8 +10,16 @@ local M = {}
 M.DEFAULT = "default"
 local FILE = vim.fn.expand("~/.cockpit/profiles.json")
 
+-- Internal profiles, never offered in the spawn picker; ~/.cockpit/profiles.json can override them by name.
+-- `coordinator` only sets the model: cockpit.coordinator adds its barebones flags on top.
+local HIDDEN = {
+  coordinator = { model = "opus", effort = "medium" },
+  ask = { model = "opus", effort = "medium" },
+  digest = { model = "sonnet", effort = "low" }, -- the coordinator's delegated reads and summaries (cockpit-ctl ask)
+}
+
 function M.all()
-  local defs = { [M.DEFAULT] = {} }
+  local defs = vim.tbl_extend("force", { [M.DEFAULT] = {} }, vim.deepcopy(HIDDEN))
   if vim.fn.filereadable(FILE) == 1 then
     local ok, user = pcall(vim.json.decode, table.concat(vim.fn.readfile(FILE), "\n"))
     if ok and type(user) == "table" then
@@ -26,7 +34,7 @@ end
 -- default first, then the rest by name
 function M.names()
   local names = vim.tbl_filter(function(n)
-    return n ~= M.DEFAULT
+    return n ~= M.DEFAULT and not HIDDEN[n]
   end, vim.tbl_keys(M.all()))
   table.sort(names)
   table.insert(names, 1, M.DEFAULT)
